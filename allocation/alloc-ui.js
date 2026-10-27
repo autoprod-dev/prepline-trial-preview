@@ -77,7 +77,7 @@ function printSheetHTML(sh){const {L,g}=grid(sh);const merged=new Set();const sp
 function doPrint(which){if(!state)return;const R=state.res;const list=which==='week'?R.sheets:[R.sheets[state.day]];$('printArea').innerHTML=list.map(printSheetHTML).join('');document.title=E.fileName(R).replace(/\.xlsx$/,'')+(which==='week'?'':' '+DAYCAP(list[0].dayName));window.print();}
 function printReview(){if(!state)return;const R=state.res;$('printArea').innerHTML=`<section class="psheet"><h2>Work order review · ${esc(state.woName)}</h2>${$('review').innerHTML}</section>`;window.print();}
 
-/* ---------- xlsx in Paula's template layout ---------- */
+/* ---------- xlsx in the planner's template layout ---------- */
 const thin={style:'thin',color:{rgb:'000000'}};const B={top:thin,bottom:thin,left:thin,right:thin};
 function styleFor(st,c){const s={font:{name:'Arial',sz:10,color:{rgb:'000000'}},alignment:{vertical:'bottom',wrapText:false}};
  if(c<6)s.border=B;

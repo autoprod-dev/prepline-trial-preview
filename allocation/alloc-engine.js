@@ -9,7 +9,7 @@ const DEFAULT_ALLOC_SETTINGS={
  cutawayColour:'9E61E8', cutawayHandling:'section-by-row-colour', // or 'skip'
  entCentre:{roomPattern:'ent cent|entertainment centre|tiktok',eventPattern:'american express|amex',greenRoomLine:'{artist} green room',retailLine:'{artist} kiosk & amex'},
  genericItemPattern:'asn menu|generic menu item|custom sydney eats',
- roundTo:0,                     // 0 = no rounding of pax (OPEN QUESTION: Paula rounds by judgement)
+ roundTo:0,                     // 0 = no rounding of pax (OPEN QUESTION: the planner rounds by judgement)
  coffeeShopLines:[],            // generic coffee shop lines [{dish,pax,day}] (OPEN QUESTION)
  fruitsFirstLine:'botanicals',
  shortNamePrefixes:['Wrap - ','Sandwich - ','Salad - ','Bowl - ','Custom Menu - ']
@@ -91,7 +91,7 @@ function buildAllocation(wo,S0){const S=Object.assign({},DEFAULT_ALLOC_SETTINGS,
   return {date:D,dayName:dn,aheadDates:ahead,service:SERVICE_SECTIONS.map(s=>({key:s,fill:SERVICE_FILL[s],lines:(s==='Retail'&&V2?selR([D]):sel(s,[D])).map(x=>({...x}))})),prep:PREP_SECTIONS.map(p=>({...p,counts:p.matrix.map(()=>''),lines:(p.key==='Fruits'&&S.fruitsFirstLine?[{dish:S.fruitsFirstLine,paxValue:null,date:null}]:[]).concat((p.key==='Retail'&&V2?selR([D].concat(ahead)):sel(p.key,ahead)).map(x=>({...x}))).map((x,i)=>V2&&i===0&&!x.staff&&x.dish?{...x,staff:'after service'}:x)}))};});
  return {settings:S,week,fileDate,lastWO,sheets,lines,trace,skipped,unplaced:V2?skipped.slice():[],v2:!!V2};}
 function fileName(res){const [y,m,d]=res.fileDate.split('-');return `Larder W.E ${d}.${m}.${y.slice(2)}.xlsx`;}
-/* Build an AOA + style map for one day sheet in Paula's template layout. Returns {cells:[[r,c,v,style]], merges, rows} */
+/* Build an AOA + style map for one day sheet in the planner's template layout. Returns {cells:[[r,c,v,style]], merges, rows} */
 /* Chef totals: sum Staff Required over every service+prep line (all numbers in the cell added, e.g. 'after service + 3' = 3; blanks/text = 0), plus prep matrix counts separately. */
 function staffNum(v){if(typeof v==='number')return isFinite(v)?v:0;const m=String(v==null?'':v).match(/\d+(?:\.\d+)?/g);return m?m.reduce((a,x)=>a+Number(x),0):0;}
 function chefTotals(sh){let lines=0,prep=0;for(const blk of ['service','prep'])for(const sec of sh[blk]||[])for(const l of sec.lines||[])lines+=staffNum(l.staff);

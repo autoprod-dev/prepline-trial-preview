@@ -6,7 +6,7 @@ const clean=v=>v==null?'':String(v).replace(/\u00a0/g,' ').trim();
 const SAND='C9DAF8',SALAD='B6D7A8',GREEN='D9EAD3',FRUIT='FFC000',PLAT='70AD47',KIOSK='D5A6BD',CAN='F4CCCC';
 const KEEP_AREAS=/^(larder|combo|other)$/i;
 const NOT_LARDER=/botanical water|^(hot dish|plant based|sweet|dessert)\s*-|^additional big bite|after dark canap|^breakfast on the go|^juicer$|^dietary option|^chef$|^hot items|ice cream|gelato|sharing bowls|^plated menu|main course|alternate serve|^no signature|service fee|fridge|karanda bar|chef's selection$|spoons|^table allocation|coffee|espresso|barista|nespresso|\bteas?\b|filtered (ice )?water|additional hours|hire\b|^monday\s*-\s*friday|service staff|staff\b|mugs|pods\b/i;
-const MENU_HEAD=/(?!)/; // reserved: menu headers Paula leaves white (no gain on this week's data)
+const MENU_HEAD=/(?!)/; // reserved: menu headers the planner leaves white (no gain on this week's data)
 const RULES=[
  [/retail kiosk/i,KIOSK],
  [/^grab and go breakfast|kale, and quinoa salad/i,GREEN],
@@ -36,13 +36,13 @@ function normalise(rows,weekStart){const start=weekStart||defaultWeek(rows);cons
   if(/^prep\s*area$/i.test(area))continue;
   stats.rows++;if(area&&!KEEP_AREAS.test(area)){stats.dropped++;continue;}
   const item=clean(x.I);const key=day+'|'+clean(x.F);let fill=item?classify(item,area):null;
-  if((Number(x.G)||0)>1&&MENU_HEAD.test(item)){last[key]=fill;fill=null;}   // menu header: Paula leaves it white so its pax pass to the dishes under it
+  if((Number(x.G)||0)>1&&MENU_HEAD.test(item)){last[key]=fill;fill=null;}   // menu header: the planner leaves it white so its pax pass to the dishes under it
   if(!area&&(Number(x.G)||0)<=1&&last[key]&&!NOT_LARDER.test(clean(x.I)))fill=last[key];   // package filling: same colour as its package
   if(fill&&(area||(Number(x.G)||0)>1))last[key]=fill;
   if(fill)stats.coloured++;stats.kept++;
   out.push({r:x.r,A:x.A,B:x.B,C:x.C,D:x.D,E:x.E,F:x.F,G:x.G,H:x.I,I:x.J,J:x.L,K:x.M,L:x.N,M:x.O,O:x.Q,fill,fillA:null,prepArea:area||null,inferred:true});}
  return {rows:out,weekStart:start,stats};}
-/* Best-guess ratios inferred from Paula's week of 26 Oct sheet. Replace these numbers when Paula sends hers.
+/* Best-guess ratios inferred from the planner's week of 26 Oct sheet. Replace these numbers when the planner sends hers.
    staffPaxPerHead: one staff per N pax (largest pax in the group), rounded up, then clamped to min/max.
    fixedStaff: sections staffed by a fixed number regardless of pax. */
 const ALLOC_RATIOS=root.ALLOC_RATIOS||{
