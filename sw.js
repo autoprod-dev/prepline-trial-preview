@@ -12,15 +12,16 @@
  * Updates: a new sw.js installs alongside the old one and WAITS. The page shows
  * "Update available - Reload"; Reload sends SKIP_WAITING, then the page reloads once.
  */
-const VERSION = '4.3.0-trial';
+const VERSION = '4.3.5.4';
 const SCOPE_PATH = new URL(self.registration.scope).pathname;   // '/preplist-sorter/', '/prepline-test/' or '/prepline-team/'
 // The team site serves every library from itself (no CDN, no Google Fonts): never contact a CDN there.
 const NO_CDN = SCOPE_PATH === '/prepline-team/';
-const CACHE_PREFIX = 'prepline-trial-preview:' + SCOPE_PATH;                  // e.g. 'prepline:/preplist-sorter/'
+const CACHE_PREFIX = 'prepline:' + SCOPE_PATH;                  // e.g. 'prepline:/preplist-sorter/'
 const CACHE = CACHE_PREFIX + VERSION;
 // 3.3.0 (test site only) used 'prepline-test-<version>'
 const LEGACY_PREFIX = SCOPE_PATH === '/prepline-test/' ? 'prepline-test-' : null;
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './gate.js', './gate-config.js', './brand.js',
+// gate.js + gate-config.js must stay in APP_SHELL: every cached/offline page load still runs the gate (fail-closed). The SW never strips or bypasses it.
+const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './gate.js', './gate-config.js', './brand.js', './prep-days-vocab.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png'];
 // Same-site library copies (team site). Precached when present, skipped where absent (404).
 const LOCAL_LIBS = ['./lib/xlsx.full.min.js', './lib/pdf.min.js', './lib/pdf.worker.min.js',
