@@ -83,17 +83,23 @@ var LICENSE_CONFIG = {
 <script src="prep-days-vocab.js"></script>
 <script src="rules-engine.js"></script>
 <script src="rules-ui.js"></script>
-<link rel="stylesheet" href="vendor/x-spreadsheet/xspreadsheet.css">
-<script src="vendor/x-spreadsheet/xspreadsheet.js"></script>
-<script src="vendor/hot-formula-parser/formula-parser.min.js"></script>
+<!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
+<script src="pdf-editor.js"></script>
 
 
 <script type="module">
   // Pinned to pdf.js 5.6.205 — do not switch to a floating "latest" tag,
   // older builds parse PDF layout differently and will break extraction.
-  import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.6.205/pdf.min.mjs';
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.6.205/pdf.worker.min.mjs';
+  // Prefer self-hosted pdf.js (vendor/); CDN fallback for old caches.
+  let pdfjsLib;
+  try {
+    pdfjsLib = await import('./vendor/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs', import.meta.url).href;
+  } catch (e) {
+    pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.6.205/pdf.min.mjs');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.6.205/pdf.worker.min.mjs';
+  }
   window.pdfjsLib = pdfjsLib;
 </script>
 <style>
@@ -912,7 +918,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v3.4.9-r8-builder3</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.5.0</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -4054,7 +4060,7 @@ async function handlePdfFiles(fileList, opts){
       try{
         if (!opts.append && window.PreplineSheet && typeof window.PreplineSheet.offerPdfRowEdit==='function'){
           const extracted = ROWS.map(r=>({dish:r.dish, task:r.task||r.item, qty:r.qty, unit:r.unit, section:r.section||'', date:eventDateByDish[r.dish]||'', pax:paxByDish[r.dish], prepCat:r.prepCat||''}));
-          // Offer edit of structured rows (PDF binary itself is never edited)
+          // Offer PDF editor (page tools + editable extract grid). Original PDF text is not reflowable.
           setTimeout(()=>window.PreplineSheet.offerPdfRowEdit(extracted, {name: tagName}), 0);
         }
       }catch(e){}
