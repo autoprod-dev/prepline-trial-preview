@@ -83,6 +83,7 @@ var LICENSE_CONFIG = {
 <script src="prep-days-vocab.js"></script>
 <script src="rules-engine.js"></script>
 <script src="rules-ui.js"></script>
+<script src="batching.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -918,7 +919,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.5.0</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.0</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1452,7 +1453,8 @@ let onetimeSaveTimer = null;
 function saveOnetimeSession(){
   if(!ROWS || ROWS.length === 0) return; // nothing real to back up yet — don't clobber a prior save
   const base = {ROWS, leaderBySection, paxByDish, activeFilter, viewMode,
-    eventDayOverride, eventDateByDish, rosteredChefs, sourceInfo};
+    eventDayOverride, eventDateByDish, rosteredChefs, sourceInfo,
+    batching: (window.PreplineBatch && PreplineBatch.exportState) ? PreplineBatch.exportState() : null};
   try{
     // Try with the original-page images included first — they're the whole point of
     // this feature, so only drop them if they genuinely don't fit.
@@ -1502,6 +1504,7 @@ function loadOnetimeSession(){
       eventDayOverride = isObj(s.eventDayOverride) ? s.eventDayOverride : {};
       eventDateByDish = isObj(s.eventDateByDish) ? s.eventDateByDish : {};
       rosteredChefs = isObj(s.rosteredChefs) ? s.rosteredChefs : {};
+      if (isObj(s.batching) && window.PreplineBatch) try{ PreplineBatch.loadState(s.batching); }catch(e){}
       sourceInfo = isObj(s.sourceInfo) ? s.sourceInfo : sourceInfo;
       originalPageImages = {};
       if (isObj(s.originalPageImages)){
@@ -4919,7 +4922,8 @@ function exportGroupedToXlsx(groupFn, tabNameFn, filenamePrefix, emptyMsg, sortF
     setStatus('The spreadsheet export could not load. This tool needs an internet connection when it opens — connect, reload the page, and try again.', 'err');
     return;
   }
-  const exportRows = activeRows();
+  // 4.6.0: export respects sticky day/section/search filters (viewRows); full list when filters are All.
+  const exportRows = (typeof viewRows === 'function') ? viewRows() : activeRows();
   if (!exportRows.length){
     setStatus('Nothing to export yet — load a preplist first (or tick at least one dish in the summary above).', 'err');
     return;
@@ -5056,6 +5060,7 @@ function render(){
   const keepH = area.offsetHeight; area.style.minHeight = keepH + 'px';
   area.innerHTML = html;
   area.style.minHeight = '';
+  try{ bindBatchingBar(); }catch(e){}
   if (focusKey){ const el = [...area.querySelectorAll(focusKey.tag)].find(e=>e.getAttribute(focusKey.attr)===focusKey.val); if (el){ try{ el.focus({preventScroll:true}); }catch(e){} } }
   if (window.scrollY !== keepY || window.scrollX !== keepX) window.scrollTo(keepX, keepY);
   try{ numberDaysIn(document.getElementById('preplistTab') || document.body); }catch(e){}
@@ -5092,10 +5097,35 @@ function rowMatchesSearch(r){
     (leaderBySection[r.section]||'').toLowerCase().includes(q) ||
     (r.day||'').toLowerCase().includes(q);
 }
+function batchDeps(){
+  return {
+    getEventDay, computeTotal, toBaseQty, cleanDishName,
+    blockedDays: (typeof blockedDays !== 'undefined' && blockedDays) ? blockedDays : new Set()
+  };
+}
+function viewRows(){
+  // Active dishes → sticky day/section filter → search. Used by views + print/export.
+  let rows = activeRows();
+  if (window.PreplineBatch) rows = PreplineBatch.filterRows(rows, batchDeps());
+  return rows.filter(rowMatchesSearch);
+}
 function searchBarHtml(){
-  const visibleRows = activeRows();
+  if (window.PreplineBatch) try{ PreplineBatch.ensureCss(); }catch(e){}
+  const baseRows = activeRows();
+  const filtered = window.PreplineBatch ? PreplineBatch.filterRows(baseRows, batchDeps()) : baseRows;
+  const visibleRows = filtered;
   const matchCount = searchQuery.trim() ? visibleRows.filter(rowMatchesSearch).length : visibleRows.length;
-  return `<div class="row no-print" style="margin-bottom:16px; align-items:center;">
+  const sections = [...new Set(baseRows.map(r=>r.section).filter(Boolean))].sort();
+  const counts = window.PreplineBatch ? PreplineBatch.dayCounts(
+    (window.PreplineBatch.getState().sectionFilter && window.PreplineBatch.getState().sectionFilter !== 'all')
+      ? baseRows.filter(r=>r.section === window.PreplineBatch.getState().sectionFilter)
+      : baseRows,
+    batchDeps()
+  ) : { all: baseRows.length };
+  const sticky = window.PreplineBatch
+    ? PreplineBatch.stickyBarHtml({ counts, sections, escapeHtml })
+    : '';
+  return sticky + `<div class="row no-print" style="margin-bottom:16px; align-items:center;">
     <div class="field" style="flex:0 1 360px;">
       <input type="text" id="globalSearch" placeholder="Search tasks, dishes, sections, leads, days…" value="${escapeHtml(searchQuery)}"
         oninput="setSearch(this.value)" style="width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px;">
@@ -5103,6 +5133,26 @@ function searchBarHtml(){
     ${searchQuery.trim() ? `<button class="ghost" onclick="clearSearch()" type="button">Clear</button>` : ''}
     <div class="meta" style="font-size:12px; color:var(--ink-soft);">${searchQuery.trim() ? matchCount+' of '+visibleRows.length+' tasks match' : visibleRows.length+' tasks total'}</div>
   </div>`;
+}
+function bindBatchingBar(){
+  if (!window.PreplineBatch) return;
+  const root = document.getElementById('pbSticky');
+  if (!root) return;
+  root.querySelectorAll('[data-pb-day]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ PreplineBatch.setDayFilter(btn.getAttribute('data-pb-day')); render(); });
+  });
+  root.querySelectorAll('[data-pb-anchor]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ PreplineBatch.setListAnchor(btn.getAttribute('data-pb-anchor')); render(); });
+  });
+  const sec = root.querySelector('#pbSection');
+  if (sec) sec.addEventListener('change', ()=>{ PreplineBatch.setSectionFilter(sec.value); render(); });
+  const ba = root.querySelector('#pbBatchAcross');
+  if (ba) ba.addEventListener('change', ()=>{ PreplineBatch.setBatchAcross(ba.checked); render(); });
+}
+function unbatchLine(encodedKey){
+  if (!window.PreplineBatch) return;
+  PreplineBatch.toggleUnbatch(decodeURIComponent(encodedKey));
+  render();
 }
 // Small inline control appended after a task's text — clicking it filters to every
 // task sharing that same core ingredient, anywhere in the workbook.
@@ -5300,11 +5350,39 @@ function renderByPriority(){
   // Groups by the ACTUAL calendar weekday each task needs to happen — resolved from
   // that task's own dish event-day plus its Day 1-4 prep stage. Dishes with no event
   // day detected/set yet fall into "Unscheduled" so they're never silently lost.
+  // 4.6.0: build cross-day batches from the full filtered set FIRST, then bucket by
+  // assigned batch prep day (or by function day when the sticky bar says so).
   const order = [...dayOrderList(), 'Unscheduled'];
   const dayKeyMap = {'Monday':'day1','Tuesday':'day2','Wednesday':'day3','Thursday':'day4',
     'Friday':'day1','Saturday':'day2','Sunday':'day3','Unscheduled':'review'};
+  const anchorFn = window.PreplineBatch && PreplineBatch.getState().listAnchor === 'function';
+  const batchOn = window.PreplineBatch && PreplineBatch.getState().batchAcrossOn;
+  const allRows = viewRows();
+  const allBatches = batchOn ? PreplineBatch.buildBatches(allRows, batchDeps()) : null;
+
   const rowsByDay = {}; order.forEach(d=>rowsByDay[d]=[]);
-  activeRows().filter(rowMatchesSearch).forEach(r=>{ rowsByDay[r.day || 'Unscheduled'].push(r); });
+  const batchesByDay = {}; order.forEach(d=>batchesByDay[d]=[]);
+
+  if (batchOn){
+    allBatches.forEach(g=>{
+      if (anchorFn){
+        // Show a batch under each distinct function day it covers (rare duplicate), else once under first
+        const eds = [...new Set(g.rows.map(r=>getEventDay(r.dish)||'Unscheduled'))];
+        const bucket = eds[0] || 'Unscheduled';
+        (batchesByDay[bucket] || (batchesByDay[bucket]=[])).push(g);
+        g.rows.forEach(r=>{ (rowsByDay[bucket]||(rowsByDay[bucket]=[])).push(r); });
+      } else {
+        const bucket = g.day || 'Unscheduled';
+        (batchesByDay[bucket] || (batchesByDay[bucket]=[])).push(g);
+        g.rows.forEach(r=>{ (rowsByDay[bucket]||(rowsByDay[bucket]=[])).push(r); });
+      }
+    });
+  } else {
+    allRows.forEach(r=>{
+      const bucket = anchorFn ? (getEventDay(r.dish) || 'Unscheduled') : (r.day || 'Unscheduled');
+      (rowsByDay[bucket] || (rowsByDay[bucket]=[])).push(r);
+    });
+  }
 
   let html = '<div class="summary no-print">';
   order.forEach(d=>{
@@ -5319,7 +5397,8 @@ function renderByPriority(){
         : gap>0 ? `<div class="lead" style="color:var(--veg1); font-weight:700;">+${gap} spare</div>`
         : `<div class="lead" style="font-weight:700;">Exactly covered</div>`;
     }
-    html += `<div class="sumcard ${key}"><div class="n">${chefs}</div><div class="lbl">${d}</div><div class="lead">${rowsByDay[d].length} tasks · ${fmtHours(totalMin)}</div>${gapLine}</div>`;
+    const nLabel = batchOn ? ((batchesByDay[d]||[]).length + ' batches') : (rowsByDay[d].length + ' tasks');
+    html += `<div class="sumcard ${key}"><div class="n">${chefs}</div><div class="lbl">${d}</div><div class="lead">${nLabel} · ${fmtHours(totalMin)}</div>${gapLine}</div>`;
   });
   html += '</div>';
   html += consolidateToggleHtml();
@@ -5343,8 +5422,11 @@ function renderByPriority(){
          <input type="text" inputmode="numeric" class="leader-input" style="width:60px;" placeholder="—"
            value="${rosteredChefs[d]!==undefined?rosteredChefs[d]:''}" onchange="setRosteredChefs('${d}', this.value)">`
       : '';
-    const groups = consolidateOn ? sortGroups(buildConsolidatedGroups(rowsForDay), 'priority') : null;
-    const rowCountLabel = consolidateOn ? `${groups.length} lines (from ${rowsForDay.length} tasks)` : `${rowsForDay.length} tasks`;
+    const batchGroups = batchOn ? (batchesByDay[d] || []) : null;
+    const groups = (!batchOn && consolidateOn) ? sortGroups(buildConsolidatedGroups(rowsForDay), 'priority') : null;
+    const rowCountLabel = batchOn
+      ? `${batchGroups.length} batch lines (from ${rowsForDay.length} tasks)`
+      : (consolidateOn ? `${groups.length} lines (from ${rowsForDay.length} tasks)` : `${rowsForDay.length} tasks`);
     html += `<div class="section-head no-print" style="background:var(--${key}-bg);">
       <div><h3 style="color:var(--${key})">${heading}</h3><div class="meta">${rowCountLabel} · ~${chefs} chef${chefs===1?'':'s'} needed (${fmtHours(totalMin)} total)${gapText}</div></div>
       <div class="section-actions">
@@ -5355,7 +5437,18 @@ function renderByPriority(){
     </div>
     <div class="section-table-wrap no-print">`;
 
-    if (consolidateOn){
+    if (batchOn){
+      html += `<table><thead><tr>
+        <th style="width:34%">Task / batch</th>
+        <th style="width:22%">Dishes</th>
+        <th style="width:12%">Total needed</th>
+        <th style="width:12%">Section</th>
+        <th style="width:10%">Lead</th>
+        <th style="width:10%">Prep day</th>
+      </tr></thead><tbody>`;
+      batchGroups.forEach(g=>{ html += batchGroupRowHtml(g); });
+      html += `</tbody></table></div>`;
+    } else if (consolidateOn){
       html += `<table><thead><tr>
         <th style="width:32%">Task</th>
         <th style="width:26%">Dishes</th>
@@ -5410,7 +5503,9 @@ function renderByPriority(){
     }
 
     let printRowsHtml2;
-    if (consolidateOn){
+    if (batchOn){
+      printRowsHtml2 = batchGroups.map(g=>batchGroupRowHtml(g, {print:true})).join('');
+    } else if (consolidateOn){
       printRowsHtml2 = groups.map(g=>{
         const isMerged = g.rows.length>1;
         const totalCell = g.hasTotal ? `<b>${qN(g.total,g.unit)}</b> ${escapeHtml(qU(g.total,g.unit))}` : '<span class="needpax">set pax</span>';
@@ -5449,12 +5544,14 @@ function renderByPriority(){
       ${paxReferenceBlock(rowsForDay)}
       <div class="print-head">
         <h2>${heading}</h2>
-        <div class="meta">${consolidateOn ? groups.length+' lines (from '+rowsForDay.length+' tasks)' : rowsForDay.length+' tasks'} · ~${chefs} chef${chefs===1?'':'s'} needed (${fmtHours(totalMin)} total)</div>
+        <div class="meta">${batchOn ? batchGroups.length+' batch lines (from '+rowsForDay.length+' tasks)' : (consolidateOn ? groups.length+' lines (from '+rowsForDay.length+' tasks)' : rowsForDay.length+' tasks')} · ~${chefs} chef${chefs===1?'':'s'} needed (${fmtHours(totalMin)} total)</div>
       </div>
       ${alPrintNote(rowsForDay)}
-      <table><thead>${consolidateOn
+      <table><thead>${batchOn
+        ? '<tr><th style="width:30%">Task / batch</th><th style="width:18%">Dishes</th><th style="width:10%">Total</th><th style="width:14%">Section</th><th style="width:12%">Lead</th><th style="width:16%">Prep day</th></tr>'
+        : (consolidateOn
         ? '<tr><th style="width:27%">Task</th><th style="width:22%">Dishes</th><th style="width:11%">Total needed</th><th style="width:21%">Section</th><th style="width:19%">Lead</th></tr>'
-        : '<tr><th style="width:14%">Dish</th><th>Task</th><th style="width:6%">Pax</th><th style="width:8%">Per pax</th><th style="width:9%">Total needed</th><th style="width:16%">Section</th><th style="width:14%">Lead</th></tr>'}</thead>
+        : '<tr><th style="width:14%">Dish</th><th>Task</th><th style="width:6%">Pax</th><th style="width:8%">Per pax</th><th style="width:9%">Total needed</th><th style="width:16%">Section</th><th style="width:14%">Lead</th></tr>')}</thead>
       <tbody>
       ${printRowsHtml2}
       </tbody></table>
@@ -5469,11 +5566,17 @@ function printPriority(key){
 }
 
 function copyPriority(label, key){
-  const rowsForDay = ROWS.filter(r=> (r.day || 'Unscheduled') === label);
+  const rowsForDay = viewRows().filter(r=> (r.day || 'Unscheduled') === label);
   let text = `${label}\n`;
   if (pdfRowsPresent(rowsForDay)) text += `ALL ITEMS BELOW ARE COOKED WEIGHT — refer to the production tool for raw weights\n`;
   text += `\n`;
-  if (consolidateOn){
+  if (window.PreplineBatch && PreplineBatch.getState().batchAcrossOn){
+    const groups = PreplineBatch.buildBatches(rowsForDay, batchDeps()).filter(g => (g.day || 'Unscheduled') === label);
+    groups.forEach(g=>{
+      const totalTxt = g.hasTotal ? `${qN(g.total,g.unit)} ${qU(g.total,g.unit)}` : '(set pax for total)';
+      text += `  [ ] ${g.taskLabel} — ${totalTxt} · prep ${g.day||'—'} · ${g.reason||''}${g.merged ? ' — covers: '+g.covers : ''}\n`;
+    });
+  } else if (consolidateOn){
     const groups = buildConsolidatedGroups(rowsForDay);
     groups.forEach(g=>{
       const totalTxt = g.hasTotal ? `${qN(g.total,g.unit)} ${qU(g.total,g.unit)}` : '(set pax for total)';
@@ -5503,7 +5606,7 @@ function copyPriority(label, key){
 function renderBySection(){
   const counts = {}; SECTIONS.forEach(s=>counts[s]=0);
   let flaggedCount=0;
-  activeRows().filter(rowMatchesSearch).forEach(r=>{ counts[r.section]++; if (r.flagged) flaggedCount++; });
+  viewRows().forEach(r=>{ counts[r.section]++; if (r.flagged) flaggedCount++; });
 
   let html = '<div class="summary no-print">';
   SECTIONS.forEach(s=>{
@@ -5527,7 +5630,7 @@ function renderBySection(){
 
   sectionsToShow.forEach(s=>{
     const key = SECTION_KEY[s];
-    const rowsForSection = applySort(activeRows().filter(r=> r.section===s && (activeFilter!=='REVIEW' || r.flagged) && rowMatchesSearch(r)), 'section');
+    const rowsForSection = applySort(viewRows().filter(r=> r.section===s && (activeFilter!=='REVIEW' || r.flagged)), 'section');
     if (rowsForSection.length===0) return;
     const groups = consolidateOn ? sortGroups(buildConsolidatedGroups(rowsForSection), 'section') : null;
     const rowCountLabel = consolidateOn ? `${groups.length} lines (from ${rowsForSection.length} tasks)` : `${rowsForSection.length} tasks`;
@@ -5761,10 +5864,49 @@ function sortGroups(groups, view){
   return groups.map((g,i)=>[g,i]).sort((A,B)=>{ const mult = m2; const a=val(A[0]), b=val(B[0]); return a<b ? -mult : a>b ? mult : A[1]-B[1]; }).map(x=>x[0]);
 }
 function consolidateToggleHtml(){
+  const batchOn = window.PreplineBatch && PreplineBatch.getState().batchAcrossOn;
+  if (batchOn){
+    return `<div class="no-print" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;">
+      Cross-dish batching is on (sticky bar). Same ingredient + method + unit merges across function days within the 3-day expiry window.
+      <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px; cursor:pointer;">
+        <input type="checkbox" ${consolidateOn?'checked':''} onchange="setConsolidate(this.checked)" style="width:auto;">
+        Also group leftover identical same-day lines
+      </label>
+    </div>`;
+  }
   return `<label class="no-print" style="display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); margin-bottom:14px; cursor:pointer;">
     <input type="checkbox" ${consolidateOn?'checked':''} onchange="setConsolidate(this.checked)" style="width:auto;">
     Group identical tasks across dishes into one line (recommended — keeps long lists readable)
   </label>`;
+}
+function batchGroupRowHtml(g, opts){
+  opts = opts || {};
+  const isMerged = !!g.merged;
+  const totalCell = g.hasTotal ? `<b>${qN(g.total,g.unit)}</b> ${escapeHtml(qU(g.total,g.unit))}` : '<span class="needpax">set pax</span>';
+  const dishList = (g.dishes||[]).map(dh=>escapeHtml(cleanDishName(dh))).join(', ');
+  const reason = window.PreplineBatch ? PreplineBatch.batchReasonHtml(g, escapeHtml) : '';
+  const unbatch = isMerged
+    ? `<button class="ghost pb-unbatch" type="button" onclick="unbatchLine('${encodeURIComponent(g.batchKey)}')" title="Split this batch back into per-dish lines">unbatch</button>`
+    : '';
+  const flag = isMerged ? `<span class="flagtag" style="background:var(--veg1-bg);color:var(--veg1);">×${g.rows.length} dishes</span>` : '';
+  if (opts.print){
+    return `<tr class="${isMerged?'job-band-1':''}">
+      <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)}<div class="pb-reason">${escapeHtml(g.reason||'')}${g.merged?' · Covers: '+escapeHtml(g.covers||''):''}</div></td>
+      <td class="dish">${dishList}</td>
+      <td class="qty">${totalCell}</td>
+      <td class="pf-section">${escapeHtml(g.section||'')}</td>
+      <td class="pf-lead">${escapeHtml(leaderBySection[g.section] || '—')}</td>
+      <td class="pf-day">${escapeHtml(g.day||'—')}</td>
+    </tr>`;
+  }
+  return `<tr class="${isMerged?'job-band-1':''}">
+    <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)} ${findSimilarBtn(g.taskLabel)}${unbatch}${reason}</td>
+    <td class="dish">${dishList}</td>
+    <td class="qty">${totalCell}</td>
+    <td>${escapeHtml(g.section||'')}</td>
+    <td>${escapeHtml(leaderBySection[g.section] || '—')}</td>
+    <td>${escapeHtml(g.day||'—')}</td>
+  </tr>`;
 }
 
 function escapeHtml(s){
@@ -7652,6 +7794,9 @@ render = function(){ _v33BaseRender(); renderIngPanel(); };
 proBeforeInit();
 loadDatabase();
 loadOnetimeSession();
+try{
+  if (window.PreplineRules && PreplineRules.syncBatchableToUi) PreplineRules.syncBatchableToUi();
+}catch(e){}
 const hasExistingDb = Object.keys(dishDatabase).length>0;
 toolMode = (ROWS && ROWS.length>0) ? 'onetime' : (hasExistingDb ? 'database' : 'onetime');
 appMode = hasExistingDb ? 'weekly' : 'database';

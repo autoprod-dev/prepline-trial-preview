@@ -59,13 +59,22 @@
       field: 'name', op: 'contains', value: 'crab croquette', wildcard: false,
       category: 'crabcroq', leadDays: 4, weekendShift: true, overridePrep: true, stack: false
     });
+    var batchable = {};
+    (Array.isArray(root.PREP_DAYS_VOCAB) ? root.PREP_DAYS_VOCAB : []).forEach(function (c) {
+      // Default on for protein/veg/dry/oil/sauce/starch/dairy/dressing; off for garnish/micro
+      var on = (c.family === 'protein' || c.family === 'veg' || c.family === 'sauce' ||
+        c.family === 'starch' || c.family === 'dairy' || c.family === 'dressing' ||
+        c.key === 'dry' || c.key === 'oil' || c.key === 'crabcroq');
+      batchable[c.key] = !!on;
+    });
     return {
       id: 'default',
       name: 'Default',
       builtIn: true,
       matchMode: 'first', // first | stack
       weekendShift: true, // 4-day group soft-shift off Sat/Sun (profile toggle)
-      prepDaysVersion: '4.4.2',
+      prepDaysVersion: '4.6.0',
+      batchable: batchable, // 4.6.0: cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
     };
@@ -84,6 +93,20 @@
             if (di >= 0 && o.profiles[di].builtIn) o.profiles[di] = fresh;
             else if (di < 0) o.profiles.unshift(fresh);
             o.version = 2;
+            saveStore(o);
+          }
+          // 4.6.0: ensure every profile has a batchable map
+          if (!o.version || o.version < 3) {
+            var defB = defaultFromVocab().batchable || {};
+            o.profiles.forEach(function (pr) {
+              if (!pr.batchable || typeof pr.batchable !== 'object') pr.batchable = Object.assign({}, defB);
+              else {
+                Object.keys(defB).forEach(function (k) {
+                  if (pr.batchable[k] === undefined) pr.batchable[k] = defB[k];
+                });
+              }
+            });
+            o.version = 3;
             saveStore(o);
           }
           return o;
@@ -156,6 +179,14 @@
     }
     return saveProfile(p);
   }
+
+  function syncBatchableToUi(profile) {
+    var p = profile || getProfile();
+    if (root.PreplineBatch && p && p.batchable) {
+      try { root.PreplineBatch.loadState({ batchable: p.batchable }); } catch (e) {}
+    }
+  }
+
 
   function norm(t) {
     return String(t == null ? '' : t).toLowerCase().replace(/[ée]/g, function (m) { return m === 'é' ? 'e' : m; });
@@ -312,6 +343,7 @@
     STORE: STORE, uid: uid, defaultFromVocab: defaultFromVocab,
     loadStore: loadStore, getProfile: getProfile, listProfiles: listProfiles,
     saveProfile: saveProfile, deleteProfile: deleteProfile, resetDefault: resetDefault,
+    syncBatchableToUi: syncBatchableToUi,
     activeId: activeId, setActiveId: setActiveId,
     exportProfile: exportProfile, importProfile: importProfile,
     evaluate: evaluate, preview: preview, packsFor: packsFor, vocabFromProfile: vocabFromProfile
