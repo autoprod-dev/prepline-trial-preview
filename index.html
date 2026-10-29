@@ -5194,7 +5194,13 @@ function render(){
   if (viewMode!=='orig' && viewMode!=='recipes' && viewMode!=='voice'){ html += searchBarHtml();
   html += printOrderControlHtml(); }   // v3.4.5: the Order sheet view has it too
   if (window.PreplineUpgrades47) try{ PreplineUpgrades47.ensureCss(); }catch(e){}
-  const diffBanner = (window.PreplineUpgrades47 && PreplineUpgrades47.peekLastDiff) ? PreplineUpgrades47.changeCheckHtml(PreplineUpgrades47.peekLastDiff(), escapeHtml) : '';
+  let diffBanner = '';
+  try {
+    if (window.PreplineUpgrades47 && PreplineUpgrades47.peekLastDiff) {
+      const d = PreplineUpgrades47.peekLastDiff();
+      if (d) diffBanner = PreplineUpgrades47.changeCheckHtml(d, (s) => escapeHtml(String(s == null ? '' : s))) || '';
+    }
+  } catch (e) { diffBanner = ''; }
   if (diffBanner) html = diffBanner + html;
   html += viewMode==='dish' ? renderByDish()
     : viewMode==='section' ? renderBySection()

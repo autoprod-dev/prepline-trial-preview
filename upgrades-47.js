@@ -327,8 +327,8 @@
     if (!diff.added.length && !diff.removed.length && !diff.changed.length) {
       return '<div class="panel u47-diff no-print" id="u47Diff"><b>Change check</b> — same as last upload (no line changes).</div>';
     }
-    function line(r) { return escH(r.task) + ' · ' + escH(r.dish) + ' · ' + escH(r.qty) + ' ' + escH(r.unit || ''); }
-    var html = '<div class="panel u47-diff no-print" id="u47Diff"><b>Change check</b> — ' + escH(diff.summary);
+    function line(r) { return escH(String(r.task == null ? '' : r.task)) + ' · ' + escH(String(r.dish == null ? '' : r.dish)) + ' · ' + escH(String(r.qty == null ? '' : r.qty)) + ' ' + escH(String(r.unit || '')); }
+    var html = '<div class="panel u47-diff no-print" id="u47Diff"><b>Change check</b> — ' + escH(String(diff.summary || ''));
     if (diff.added.length) {
       html += '<details open><summary>Added (' + diff.added.length + ')</summary><ul>' +
         diff.added.slice(0, 40).map(function (r) { return '<li class="u47-add">' + line(r) + '</li>'; }).join('') + '</ul></details>';
@@ -340,8 +340,8 @@
     if (diff.changed.length) {
       html += '<details open><summary>Qty changed (' + diff.changed.length + ')</summary><ul>' +
         diff.changed.slice(0, 40).map(function (c) {
-          return '<li class="u47-chg">' + escH(c.after.task) + ' · ' + escH(c.after.dish) + ': ' +
-            escH(c.before.qty) + ' → <b>' + escH(c.after.qty) + '</b> ' + escH(c.after.unit || '') + '</li>';
+          return '<li class="u47-chg">' + escH(String(c.after.task||'')) + ' · ' + escH(String(c.after.dish||'')) + ': ' +
+            escH(String(c.before.qty==null?'':c.before.qty)) + ' → <b>' + escH(String(c.after.qty==null?'':c.after.qty)) + '</b> ' + escH(String(c.after.unit || '')) + '</li>';
         }).join('') + '</ul></details>';
     }
     html += '<button type="button" class="ghost" onclick="document.getElementById(\'u47Diff\').remove()">Dismiss</button></div>';
