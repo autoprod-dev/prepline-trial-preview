@@ -1778,7 +1778,7 @@ function setDayOrder(d){ dayOrderDesc = d === 'desc'; try{ localStorage.setItem(
 // Rank of a prep day in the chosen order (unscheduled / unknown always last).
 function dayRank(w){ const i = WEEKDAYS.indexOf(w); return i < 0 ? 99 : (dayOrderDesc ? 6 - i : i); }
 function dayOrderList(){ return dayOrderDesc ? WEEKDAYS.slice().reverse() : WEEKDAYS.slice(); }
-let sortState = {dish:{col:null,dir:'asc'}, section:{col:null,dir:'asc'}, priority:{col:null,dir:'asc'}, order:{col:null,dir:'asc'}};
+let sortState = {dish:{col:null,dir:'asc'}, section:{col:null,dir:'asc'}, priority:{col:null,dir:'asc'}, order:{col:null,dir:'asc'}, week:{col:null,dir:'asc'}, order47:{col:null,dir:'asc'}, recipes:{col:null,dir:'asc'}, voice:{col:null,dir:'asc'}};
 function setAllSort(col, dir){
   col = SORT_COLS.includes(col) ? col : null; dir = dir==='desc' ? 'desc' : 'asc';
   Object.keys(sortState).forEach(v=>{ sortState[v] = {col, dir}; });
@@ -1863,8 +1863,10 @@ function sortOrderLines(lines){
 }
 function printOrderControlHtml(){
   const view = viewMode;
+  if (view==='recipes' || view==='voice' || view==='order47') return '';
   const opts = sortColumnOptions(view);
-  const s = sortState[view];
+  const s = sortState[view] || {col:null,dir:'asc'};
+  if (!sortState[view]) sortState[view] = s;
   return `<div class="no-print print-order-ctl" data-view="${view}" style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:0 0 18px; padding:12px 16px; background:var(--paper2); border:1px solid var(--line); border-radius:var(--radius);">
     <b style="font-size:12.5px;">Before printing — order by:</b>
     <span class="meta" style="font-size:11.5px;">Rows in every view${view==='order'?' (lines within each supplier)':''}, on screen and in print. Remembered on this device.</span>
@@ -5189,7 +5191,7 @@ function render(){
   </div>
   ${!includeMethodInPrint && Object.keys(methodCrops).length ? '<div class="no-print pmt-note">Printouts leave out the Method screen captures. 📖 View original still shows them on screen.</div>' : ''}`;
 
-  if (viewMode!=='orig'){ html += searchBarHtml();
+  if (viewMode!=='orig' && viewMode!=='recipes' && viewMode!=='voice'){ html += searchBarHtml();
   html += printOrderControlHtml(); }   // v3.4.5: the Order sheet view has it too
   if (window.PreplineUpgrades47) try{ PreplineUpgrades47.ensureCss(); }catch(e){}
   const diffBanner = (window.PreplineUpgrades47 && PreplineUpgrades47.peekLastDiff) ? PreplineUpgrades47.changeCheckHtml(PreplineUpgrades47.peekLastDiff(), escapeHtml) : '';

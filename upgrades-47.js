@@ -932,6 +932,7 @@
     voiceSupported: voiceSupported,
     voicePanelHtml: voicePanelHtml,
     bindVoice: bindVoice,
+    simulateVoice: function (text) { return parseVoiceUtterance(text); },
     learnSectionsFromRows: learnSectionsFromRows,
     suggestSection: suggestSection,
     sectionBadgeHtml: sectionBadgeHtml,
