@@ -932,7 +932,22 @@
     voiceSupported: voiceSupported,
     voicePanelHtml: voicePanelHtml,
     bindVoice: bindVoice,
-    simulateVoice: function (text) { return parseVoiceUtterance(text); },
+    simulateVoice: function (text) {
+      var p = parseVoiceUtterance(text);
+      if (p && typeof document !== 'undefined') {
+        var qty = document.getElementById('u47VQty');
+        var unit = document.getElementById('u47VUnit');
+        var item = document.getElementById('u47VItem');
+        var day = document.getElementById('u47VDay');
+        var status = document.getElementById('u47VStatus');
+        if (qty) qty.value = p.qty || '';
+        if (unit) unit.value = p.unit || '';
+        if (item) item.value = p.task || '';
+        if (day && p.day) day.value = p.day;
+        if (status) status.textContent = 'Heard: ' + (p.raw || '') + ' — check, then Add line.';
+      }
+      return p;
+    },
     learnSectionsFromRows: learnSectionsFromRows,
     suggestSection: suggestSection,
     sectionBadgeHtml: sectionBadgeHtml,
