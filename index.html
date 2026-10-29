@@ -8425,7 +8425,9 @@ function exportOrganisedXlsx47(){
     const res = PreplineUpgrades47.exportOrganisedXlsx(viewRows(), batchDeps(), {
       cleanDishName, staffBySection, defaultStaff: 'Unallocated'
     });
-    setStatus('Organised export: '+res.rows+' rows, yellow header, frozen top row. Manual exports still available.', 'ok');
+    const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows, yellow header, frozen top row ('+(r&&r.engine||'xlsx')+'). Manual exports still available.', 'ok');
+    if (res && typeof res.then === 'function') res.then(done).catch(e=>setStatus('Organised export failed: '+(e&&e.message||e), 'err'));
+    else done(res);
   }catch(e){ setStatus('Organised export failed: '+(e&&e.message||e), 'err'); }
 }
 function bindUpgrades47(){

@@ -826,49 +826,112 @@
     return out;
   }
 
+  function loadExcelJS() {
+    return new Promise(function (resolve, reject) {
+      if (root.ExcelJS) return resolve(root.ExcelJS);
+      var s = document.createElement('script');
+      s.src = 'vendor/exceljs/exceljs.min.js';
+      s.onload = function () { resolve(root.ExcelJS); };
+      s.onerror = function () { reject(new Error('ExcelJS failed to load')); };
+      document.head.appendChild(s);
+    });
+  }
+
   function exportOrganisedXlsx(rows, deps, helpers) {
-    if (typeof XLSX === 'undefined' || !XLSX.utils) {
-      throw new Error('XLSX not loaded');
-    }
+    helpers = helpers || {};
     var data = buildExportRows(rows, deps, helpers);
     var headers = ['Dish name', 'Item name', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated'];
-    var aoa = [headers];
-    data.forEach(function (r) {
-      aoa.push([r.dishName, r.itemName, r.qtyEach, r.qtyTotal, r.batchNo, r.staff]);
-    });
-    var ws = XLSX.utils.aoa_to_sheet(aoa);
-    // Yellow header + bold via cell styles when xlsx-js-style present; else mark and rely on openpyxl verify path
-    var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
-    var bold = { bold: true, name: 'Arial', sz: 11 };
-    headers.forEach(function (_, c) {
-      var addr = XLSX.utils.encode_cell({ r: 0, c: c });
-      if (!ws[addr]) ws[addr] = { t: 's', v: headers[c] };
-      ws[addr].s = { fill: yellow, font: bold, alignment: { vertical: 'center' } };
-    });
-    // Ensure no blank data cells
-    for (var r = 1; r < aoa.length; r++) {
-      for (var c = 0; c < 6; c++) {
-        var a = XLSX.utils.encode_cell({ r: r, c: c });
-        if (!ws[a] || ws[a].v === '' || ws[a].v == null) {
-          ws[a] = { t: 's', v: '—' };
+    var name = 'Prepline_Organised_' + (new Date().toISOString().slice(0, 10)) + '.xlsx';
+
+    function downloadBlob(buf, filename) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { try { URL.revokeObjectURL(a.href); } catch (e) {} }, 1500);
+    }
+
+    function withExcelJS(ExcelJS) {
+      var wb = new ExcelJS.Workbook();
+      var ws = wb.addWorksheet('Prep list', {
+        views: [{ state: 'frozen', ySplit: 1, activeCell: 'A2', showGridLines: true }]
+      });
+      ws.columns = [
+        { key: 'dishName', width: 36 },
+        { key: 'itemName', width: 32 },
+        { key: 'qtyEach', width: 14 },
+        { key: 'qtyTotal', width: 18 },
+        { key: 'batchNo', width: 12 },
+        { key: 'staff', width: 16 }
+      ];
+      var head = ws.addRow(headers);
+      head.eachCell(function (cell) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+        cell.font = { bold: true, name: 'Arial', size: 11 };
+        cell.alignment = { vertical: 'middle' };
+      });
+      data.forEach(function (r) {
+        ws.addRow([
+          r.dishName || '—', r.itemName || '—', r.qtyEach || '—',
+          r.qtyTotal || '—', r.batchNo || '—', r.staff || '—'
+        ]);
+      });
+      // Ensure no blanks
+      ws.eachRow(function (row, rn) {
+        if (rn === 1) return;
+        for (var c = 1; c <= 6; c++) {
+          var cell = row.getCell(c);
+          if (cell.value == null || cell.value === '') cell.value = '—';
+        }
+      });
+      return wb.xlsx.writeBuffer().then(function (buf) {
+        downloadBlob(buf, name);
+        return { name: name, rows: data.length, headers: headers, data: data, engine: 'exceljs' };
+      });
+    }
+
+    function withXLSX() {
+      if (typeof XLSX === 'undefined' || !XLSX.utils) throw new Error('XLSX not loaded');
+      var aoa = [headers];
+      data.forEach(function (r) {
+        aoa.push([r.dishName, r.itemName, r.qtyEach, r.qtyTotal, r.batchNo, r.staff]);
+      });
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
+      var bold = { bold: true, name: 'Arial', sz: 11 };
+      headers.forEach(function (_, c) {
+        var addr = XLSX.utils.encode_cell({ r: 0, c: c });
+        if (!ws[addr]) ws[addr] = { t: 's', v: headers[c] };
+        ws[addr].s = { fill: yellow, font: bold, alignment: { vertical: 'center' } };
+      });
+      for (var r = 1; r < aoa.length; r++) {
+        for (var c = 0; c < 6; c++) {
+          var a = XLSX.utils.encode_cell({ r: r, c: c });
+          if (!ws[a] || ws[a].v === '' || ws[a].v == null) ws[a] = { t: 's', v: '—' };
         }
       }
+      ws['!cols'] = [
+        { wch: 36 }, { wch: 32 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 16 }
+      ];
+      ws['!freeze'] = 'A2';
+      ws['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Prep list');
+      XLSX.writeFile(wb, name);
+      return { name: name, rows: data.length, headers: headers, data: data, engine: 'xlsx' };
     }
-    ws['!cols'] = [
-      { wch: 36 }, { wch: 32 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 16 }
-    ];
-    ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
-    // SheetJS community: freeze via workbook view / !rows sometimes ignored — set workbook sheet views
-    var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Prep list');
-    if (!wb.Workbook) wb.Workbook = {};
-    if (!wb.Workbook.Views) wb.Workbook.Views = [{}];
-    wb.Workbook.Views[0].activeTab = 0;
-    // panes
-    if (!ws['!views']) ws['!views'] = [{ state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
-    var name = 'Prepline_Organised_' + (new Date().toISOString().slice(0, 10)) + '.xlsx';
-    XLSX.writeFile(wb, name);
-    return { name: name, rows: data.length, headers: headers, data: data };
+
+    // Prefer ExcelJS (real freeze + yellow). Fall back to XLSX styles.
+    if (typeof document !== 'undefined') {
+      // Sync path used by tests that monkey-patch XLSX.writeFile: if helpers.forceXlsx, skip ExcelJS
+      if (helpers.forceXlsx) return withXLSX();
+      // Return a thenable so callers can await; also fire-and-forget download
+      var pending = loadExcelJS().then(withExcelJS).catch(function () { return withXLSX(); });
+      // Attach sync-ish fields for immediate status
+      pending.name = name; pending.rows = data.length; pending.headers = headers; pending.data = data;
+      return pending;
+    }
+    return withXLSX();
   }
 
   /* ---------- CSS ---------- */
