@@ -4,6 +4,6 @@
 window.PREPLINE_GATE = {
   enabled: true,
   endpoint: 'https://script.google.com/macros/s/AKfycbwuB0NQpptlvBOrZ58J3gHPFfVBWVFWvZZXADBLhhW39uhkIZJ1Yt-b7ug0ecydU3_z/exec',
-  timeoutMs: 8000,
+  timeoutMs: 20000,
   trial: { enforce: false }
 };

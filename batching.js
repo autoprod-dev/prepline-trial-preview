@@ -241,34 +241,28 @@
   }
 
   function coversPhrase(members, deps) {
+    // Days covered only (dish names live in the Dish column — keep merged lines short for chefs).
     var getEventDay = deps.getEventDay || function () { return ''; };
-    var cleanDish = deps.cleanDishName || function (d) { return d; };
-    return members.map(function (r) {
+    var seen = {}, days = [];
+    members.forEach(function (r) {
       var ed = getEventDay(r.dish) || r.eventDay || '';
-      return shortDay(ed) + ' ' + cleanDish(r.dish);
-    }).join(', ');
+      if (!ed || seen[ed]) return;
+      seen[ed] = true;
+      days.push(shortDay(ed));
+    });
+    var order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    days.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+    return days.join('/');
   }
 
   function reasonFor(win, members, deps) {
     if (!win) return '';
-    var days = [];
-    var seen = {};
+    // Merged lines: short reason only (days covered rendered separately). No window/expiry essay.
+    if (members && members.length > 1) return 'Merged';
+    // Solo: keep a one-line hint; weekend shift note when present.
     var getEventDay = deps.getEventDay || function () { return ''; };
-    members.forEach(function (r) {
-      var ed = getEventDay(r.dish) || '';
-      if (ed && !seen[ed]) { seen[ed] = true; days.push(shortDay(ed)); }
-    });
-    days.sort(function (a, b) {
-      var order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return order.indexOf(a) - order.indexOf(b);
-    });
-    var parts = [];
-    if (members.length === 1) {
-      parts.push('Solo: prep ' + shortDay(win.day) + ' for ' + (days[0] || 'event'));
-    } else {
-      var w = win.winMax != null ? win.winMax : batchWindowFor(members[0] && members[0].prepCat, null);
-      parts.push('Merged: ' + days.join('/') + ' uses all within ' + w + '-day expiry window');
-    }
+    var ed = members[0] ? (getEventDay(members[0].dish) || members[0].eventDay || '') : '';
+    var parts = ['Solo for ' + (shortDay(ed) || 'event')];
     if (win.shiftReason) parts.push(win.shiftReason);
     return parts.join(' · ');
   }
@@ -643,11 +637,17 @@
   function batchReasonHtml(g, esc) {
     esc = esc || function (s) { return String(s); };
     if (!g) return '';
-    var day = g.day ? shortDay(g.day) : '—';
-    var reason = g.reason || '';
-    var covers = g.merged ? ('Covers: ' + (g.covers || '')) : '';
-    return '<div class="pb-reason"><span class="pb-daypill">Prep ' + esc(day) + '</span> ' +
-      esc(reason) + (covers ? ' · <span class="pb-covers">' + esc(covers) + '</span>' : '') + '</div>';
+    // Merged: ONLY days covered + short reason (prep day is already in the Day column).
+    if (g.merged) {
+      var days = g.covers || '';
+      var reason = g.reason || 'Merged';
+      return '<div class="pb-reason">' +
+        (days ? '<span class="pb-covers">' + esc(days) + '</span> · ' : '') +
+        esc(reason) + '</div>';
+    }
+    // Solo: quiet one-liner when present
+    if (!g.reason) return '';
+    return '<div class="pb-reason">' + esc(g.reason) + '</div>';
   }
 
   function css() {

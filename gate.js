@@ -32,17 +32,23 @@
     Array.prototype.forEach.call(document.body.children, function (el) { el.removeAttribute('inert'); });
     document.documentElement.style.overflow = '';
   }
-  function call(body) {
+  function callOnce(body) {
     if (!C.enabled || !C.endpoint) return Promise.resolve(null);
-    body.region = region(); body.page = page; body.version = meta ? meta.content : ''; body.ts = Date.now();
-    var ctl = window.AbortController ? new AbortController() : null, timer = setTimeout(function () { if (ctl) ctl.abort(); }, C.timeoutMs || 8000);
-    return fetch(C.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), credentials: 'omit', cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+    var payload = Object.assign({}, body);
+    payload.region = region(); payload.page = page; payload.version = meta ? meta.content : ''; payload.ts = Date.now();
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, C.timeoutMs || 20000);
+    return fetch(C.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), credentials: 'omit', cache: 'no-store', signal: ctl ? ctl.signal : undefined })
       .then(function (r) {
         clearTimeout(timer);
         if (!r || !r.ok) return null;
         return r.json().then(function (j) { return j && typeof j === 'object' ? j : null; }, function () { return null; });
       })
       .catch(function () { clearTimeout(timer); return null; });
+  }
+  // One automatic retry on null (timeout / network / bad JSON). Still fail-closed after that.
+  function call(body) {
+    return callOnce(body).then(function (j) { return j || callOnce(body); });
   }
   function showOffline() {
     ready(function () {

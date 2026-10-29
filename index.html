@@ -919,7 +919,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.3</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.4</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5990,7 +5990,7 @@ function consolidateToggleHtml(){
   const batchOn = window.PreplineBatch && PreplineBatch.getState().batchAcrossOn;
   if (batchOn){
     return `<div class="no-print" style="font-size:12.5px; color:var(--ink-soft); margin-bottom:14px;">
-      Cross-dish batching is on (sticky bar). Same ingredient + method + unit merges across function days within the 3-day expiry window.
+      Cross-dish batching is on (sticky bar). Same ingredient + method + unit merges across function days.
       <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px; cursor:pointer;">
         <input type="checkbox" ${consolidateOn?'checked':''} onchange="setConsolidate(this.checked)" style="width:auto;">
         Also group leftover identical same-day lines
@@ -6014,7 +6014,7 @@ function batchGroupRowHtml(g, opts){
   const flag = isMerged ? `<span class="flagtag" style="background:var(--veg1-bg);color:var(--veg1);">×${g.rows.length} dishes</span>` : '';
   if (opts.print){
     return `<tr class="${isMerged?'job-band-1':''}">
-      <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)}<div class="pb-reason">${escapeHtml(g.reason||'')}${g.merged?' · Covers: '+escapeHtml(g.covers||''):''}</div></td>
+      <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)}${g.merged?`<div class="pb-reason"><span class="pb-covers">${escapeHtml(g.covers||'')}</span> · ${escapeHtml(g.reason||'Merged')}</div>`:''}</td>
       <td class="dish">${dishList}</td>
       <td class="qty">${totalCell}</td>
       <td class="pf-section">${escapeHtml(g.section||'')}</td>
@@ -7871,7 +7871,7 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 // its own manifest, service worker (scope = its own path) and cache names, so they never clash.
 // A file:// copy (offline zip, single file, team build) or any other path: nothing is injected,
 // no service worker is registered, silently.
-const PWA_CONFIG = { paths: ['/preplist-sorter/', '/prepline-test/', '/prepline-team/'], basePath: null, checkEveryMin: 60 };
+const PWA_CONFIG = { paths: ['/preplist-sorter/', '/prepline-test/', '/prepline-team/', '/prepline-trial-preview/'], basePath: null, checkEveryMin: 60 };
 function pwaEnabled(){
   if (!/^https?:$/.test(location.protocol)) return false;
   PWA_CONFIG.basePath = PWA_CONFIG.paths.find(p => location.pathname.startsWith(p)) || null;
