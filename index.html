@@ -919,7 +919,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.2</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.3</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -2215,7 +2215,7 @@ function prepInfoFor(text, legendPrep, section){
   return info;
 }
 // the weekday a line starts: lead days before the event (closed days push it earlier), else the old stage rule.
-// 4.6.2 weekend avoidance for ALL categories (when Rules profile weekendShift is on):
+// 4.6.3 weekend avoidance for ALL categories (when Rules profile weekendShift is on):
 //   Sunday never; Sat/Sun raw → forward to Monday, or back to Friday if Monday is on/after the function day.
 //   Saturday starts only when allowSaturdayStarts is on (default off). Shift reason stored on r.dayReason.
 function prepStartDayInfo(eventDay, r){

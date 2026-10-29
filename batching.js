@@ -1,12 +1,15 @@
-/* Prepline 4.6.2 — cross-dish / cross-day batching + day filter bar.
+/* Prepline 4.6.3 — cross-dish / cross-day batching + day filter bar.
  * Batch key: normalised ingredient name + prep method + unit (each ingredient own timeline).
- * Valid batch prep day D:
- *   - Sunday never; Saturday only if Rules allowSaturdayStarts (default off)
- *   - Weekend avoidance: Sat/Sun raw → forward Mon, or back Fri if Mon on/after function
- *   - (latest member function day − D) <= category batchWindow
- *     (4-day proteins poultry/redmeat/crabcroq = 4; fish/seafood = 1; gels/starch = 3; …)
- *   - Short-lead cats (fish/micro lead 1) keep min lead 1
- * Greedy split when no single D fits. Merged lines show prep day + reason.
+ * Prep day is ALWAYS strictly before earliest member use (never same-day).
+ * Per-ingredient greedy (sorted uses, start at earliest U):
+ *   - Candidate prep days U-winMax .. U-1, Sunday never
+ *   - Saturday: allowed for 4-day protein multi-use (>=2) even when allowSaturdayStarts is off;
+ *     subject to saturdayCap (overflow → Friday). Singletons use weekend avoidance (no Sat unless allowed).
+ *   - Cover: forwardDays(prep, use) in [1, maxFwd]; Saturday maxFwd = min(winMax, 3) (through Tue);
+ *     other days maxFwd = winMax (4-day protein Mon can cover through Fri)
+ *   - Pick day covering the most subsequent uses; multi-use 4-day proteins require min lead 2;
+ *     tie → later day (fresher). Solo (1 use) → prepStartFromLead (base lead + weekend rules).
+ * Fish/seafood window 1: no cross-day merge.
  */
 (function (root) {
   'use strict';
@@ -190,55 +193,51 @@
     return parts.name + '|' + parts.method + '|' + uk;
   }
 
-  function minLeadForBatch(lead) {
-    var L = Number(lead);
-    if (!Number.isFinite(L)) return 0;
-    return L <= 1 ? L : 0;
+  function isFourDayProtein(cat) {
+    return cat === 'poultry' || cat === 'redmeat' || cat === 'crabcroq';
   }
 
-  function validDayWindow(funcDays, lead, blocked, cat) {
-    var idxs = funcDays.map(dayIdx).filter(function (i) { return i >= 0; });
-    if (!idxs.length) return null;
-    var earliestIdx = Math.min.apply(null, idxs);
-    var latestIdx = Math.max.apply(null, idxs);
-    var earliestFunc = WEEKDAYS[earliestIdx];
-    var latestFunc = WEEKDAYS[latestIdx];
-    var span = latestIdx - earliestIdx;
-    var winMax = batchWindowFor(cat, lead);
-    if (span > winMax) return null;
+  /** Saturday prep lasts through Tuesday (fwd <= 3); weekdays use full winMax. */
+  function maxFwdForPrep(prepDay, winMax) {
+    if (prepDay === 'Saturday') return Math.min(winMax, 3);
+    return winMax;
+  }
 
-    var ml = minLeadForBatch(lead);
-    var kMin = ml;
-    var kMax = winMax - span;
-    if (kMin > kMax) return null;
+  function canCoverUse(prepDay, useDay, winMax, blocked) {
+    if (!prepDay || prepDay === 'Sunday') return false;
+    if (blocked && blocked.has && blocked.has(prepDay)) return false;
+    var fwd = forwardDays(prepDay, useDay);
+    if (fwd == null || fwd < 1) return false;
+    if (fwd > maxFwdForPrep(prepDay, winMax)) return false;
+    return true;
+  }
 
-    var candidates = [];
-    for (var k = kMin; k <= kMax; k++) {
-      var raw = shiftBack(earliestFunc, k);
-      var adj = weekendAdjust(raw, earliestFunc, {});
-      var d = adj.day;
-      if (!d || d === 'Sunday') continue;
-      if (d === 'Saturday' && !state.allowSaturdayStarts) continue;
-      if (blocked && blocked.has && blocked.has(d)) continue;
-      var leadLatest = forwardDays(d, latestFunc);
-      if (leadLatest == null || leadLatest > winMax) continue;
-      var leadEarliest = forwardDays(d, earliestFunc);
-      if (leadEarliest == null) continue;
-      candidates.push({ day: d, k: leadEarliest, reason: adj.reason, raw: raw, winMax: winMax });
+  function countPrefixCovered(prepDay, remaining, winMax, blocked) {
+    if (!remaining.length) return 0;
+    if (!canCoverUse(prepDay, remaining[0].eventDay, winMax, blocked)) return 0;
+    var n = 1;
+    for (var i = 1; i < remaining.length; i++) {
+      if (canCoverUse(prepDay, remaining[i].eventDay, winMax, blocked)) n++;
+      else break;
     }
-    if (!candidates.length) return null;
-    candidates.sort(function (a, b) { return a.k - b.k; });
-    var best = candidates[0];
-    return {
-      day: best.day,
-      candidates: candidates.map(function (c) { return c.day; }),
-      earliestFunc: earliestFunc,
-      latestFunc: latestFunc,
-      span: span,
-      winMax: winMax,
-      shiftReason: best.reason || '',
-      rawDay: best.raw
-    };
+    return n;
+  }
+
+  /** First pack under 4.6.3 rules (tests / legacy). */
+  function validDayWindow(funcDays, lead, blocked, cat) {
+    var days = (funcDays || []).filter(function (d) { return dayIdx(d) >= 0; });
+    if (!days.length) return null;
+    var seen = {}, uniq = [];
+    days.forEach(function (d) {
+      if (!seen[d]) { seen[d] = true; uniq.push(d); }
+    });
+    uniq.sort(function (a, b) { return dayIdx(a) - dayIdx(b); });
+    var fakeMembers = uniq.map(function (d) {
+      return { eventDay: d, row: { prepCat: cat || '', leadDays: lead } };
+    });
+    var packs = greedyPack(fakeMembers, blocked || new Set(), { satUsed: 0 });
+    if (!packs.length || !packs[0].win || !packs[0].win.day) return null;
+    return packs[0].win;
   }
 
   function coversPhrase(members, deps) {
@@ -317,6 +316,7 @@
     });
 
     var groups = [];
+    var satState = { satUsed: 0 };
     order.forEach(function (key) {
       var members = buckets[key].slice();
       members.sort(function (a, b) {
@@ -324,7 +324,7 @@
         if (da !== db) return da - db;
         return String(a.row.dish).localeCompare(String(b.row.dish));
       });
-      greedyPack(members, blocked).forEach(function (pack) {
+      greedyPack(members, blocked, satState).forEach(function (pack) {
         groups.push(makeGroup(key, pack, deps));
       });
     });
@@ -334,6 +334,11 @@
     });
 
     groups.sort(function (a, b) {
+      // Order by earliest use covered (so Sat→Mon/Tue appears before Mon→Wed/Fri), then prep day
+      var ua = a.window && a.window.earliestFunc ? dayIdx(a.window.earliestFunc) : dayIdx(a.day);
+      var ub = b.window && b.window.earliestFunc ? dayIdx(b.window.earliestFunc) : dayIdx(b.day);
+      if (ua < 0) ua = 99; if (ub < 0) ub = 99;
+      if (ua !== ub) return ua - ub;
       var da = dayIdx(a.day) < 0 ? 99 : dayIdx(a.day);
       var db = dayIdx(b.day) < 0 ? 99 : dayIdx(b.day);
       if (da !== db) return da - db;
@@ -342,26 +347,76 @@
     return groups;
   }
 
-  function greedyPack(members, blocked) {
+  /**
+   * Greedy pack sorted members (earliest use first).
+   * opts.satUsed tracks Saturday batches already chosen (shared cap across ingredients).
+   */
+  function greedyPack(members, blocked, opts) {
+    opts = opts || {};
     var remaining = members.slice();
     var packs = [];
+    var satUsed = opts.satUsed || 0;
+    var satCap = (state.saturdayCap === 0 || Number.isFinite(Number(state.saturdayCap))) ? Number(state.saturdayCap) : 3;
+
     while (remaining.length) {
-      var best = null;
-      for (var len = remaining.length; len >= 1; len--) {
-        var slice = remaining.slice(0, len);
-        var lead = Number.isFinite(slice[0].row.leadDays) ? slice[0].row.leadDays : 4;
-        var cat = slice[0].row.prepCat || '';
-        var funcDays = slice.map(function (m) { return m.eventDay; });
-        var win = validDayWindow(funcDays, lead, blocked, cat);
-        if (win) { best = { slice: slice, win: win }; break; }
+      var U = remaining[0].eventDay;
+      var cat = remaining[0].row.prepCat || '';
+      var lead = Number.isFinite(remaining[0].row.leadDays)
+        ? remaining[0].row.leadDays
+        : batchWindowFor(cat, null);
+      var winMax = batchWindowFor(cat, lead);
+      var isProt = isFourDayProtein(cat);
+      var allowSatProfile = !!state.allowSaturdayStarts;
+
+      var best = null; // { day, count, offset }
+
+      for (var offset = 1; offset <= Math.max(winMax, 1); offset++) {
+        var D = shiftBack(U, offset);
+        if (!D || D === 'Sunday') continue;
+        if (blocked && blocked.has && blocked.has(D)) continue;
+
+        var count = countPrefixCovered(D, remaining, winMax, blocked);
+        if (count < 1) continue;
+
+        // Multi-use 4-day proteins: at least 2 days before earliest use
+        if (isProt && count >= 2 && offset < 2) continue;
+
+        if (D === 'Saturday') {
+          var satOk = allowSatProfile || (isProt && count >= 2);
+          if (!satOk) continue;
+          if (satUsed >= satCap) continue; // overflow → Fri / other candidates
+        }
+
+        var better = !best || count > best.count ||
+          (count === best.count && dayIdx(D) > dayIdx(best.day));
+        if (better) best = { day: D, count: count, offset: offset };
       }
-      if (!best) {
+
+      // Solo: base lead + weekend avoidance (Sat only if profile allows)
+      if (!best || best.count === 1) {
         var one = remaining.shift();
-        var soloInfo = prepStartFromLead(one.eventDay, Number.isFinite(one.row.leadDays) ? one.row.leadDays : 4, { blockedDays: blocked });
-        var soloDay = one.row.day || '';
-        // Prefer weekend-adjusted day when stored day is Sat/Sun (or empty)
-        if (!soloDay || soloDay === 'Saturday' || soloDay === 'Sunday') {
-          soloDay = soloInfo.day || soloDay || one.eventDay || '';
+        var soloLead = Number.isFinite(one.row.leadDays) ? one.row.leadDays : winMax;
+        var soloInfo = prepStartFromLead(one.eventDay, soloLead, {
+          blockedDays: blocked,
+          allowSaturday: allowSatProfile,
+          avoidWeekend: state.avoidWeekend !== false
+        });
+        var soloDay = soloInfo.day || '';
+        if (soloDay && soloDay === one.eventDay) {
+          var push = prepStartFromLead(one.eventDay, Math.max(soloLead, 1) + 1, {
+            blockedDays: blocked,
+            allowSaturday: allowSatProfile,
+            avoidWeekend: state.avoidWeekend !== false
+          });
+          if (push.day && push.day !== one.eventDay) {
+            soloDay = push.day;
+            if (push.reason) soloInfo.reason = push.reason;
+          }
+        }
+        if (soloDay === 'Sunday') {
+          var fix = weekendAdjust('Sunday', one.eventDay, { allowSaturday: allowSatProfile });
+          soloDay = fix.day;
+          if (fix.reason) soloInfo.reason = fix.reason;
         }
         packs.push({
           members: [one],
@@ -371,14 +426,34 @@
             latestFunc: one.eventDay,
             span: 0,
             winMax: batchWindowFor(one.row.prepCat, one.row.leadDays),
-            shiftReason: one.row.dayReason || soloInfo.reason || ''
+            shiftReason: one.row.dayReason || soloInfo.reason || '',
+            rawDay: soloInfo.raw || ''
           }
         });
         continue;
       }
-      packs.push({ members: best.slice, win: best.win });
-      remaining = remaining.slice(best.slice.length);
+
+      var slice = remaining.slice(0, best.count);
+      var earliestFunc = slice[0].eventDay;
+      var latestFunc = slice[slice.length - 1].eventDay;
+      var span = dayIdx(latestFunc) - dayIdx(earliestFunc);
+      if (best.day === 'Saturday') satUsed++;
+      packs.push({
+        members: slice,
+        win: {
+          day: best.day,
+          earliestFunc: earliestFunc,
+          latestFunc: latestFunc,
+          span: span,
+          winMax: winMax,
+          shiftReason: '',
+          rawDay: best.day,
+          candidates: [best.day]
+        }
+      });
+      remaining = remaining.slice(best.count);
     }
+    opts.satUsed = satUsed;
     return packs;
   }
 
@@ -477,7 +552,9 @@
   function setAllowSaturday(on) { state.allowSaturdayStarts = !!on; }
   function setSaturdayCap(n) {
     var v = Number(n);
-    state.saturdayCap = Number.isFinite(v) && v > 0 ? v : 3;
+    // 0 = no Saturday batches (overflow to Fri); omit/invalid → default 3
+    if (n === null || n === undefined || n === '') { state.saturdayCap = 3; return; }
+    state.saturdayCap = Number.isFinite(v) && v >= 0 ? v : 3;
   }
   function setAvoidWeekend(on) { state.avoidWeekend = !!on; }
   function getState() { return state; }
@@ -606,6 +683,9 @@
     parseTaskParts: parseTaskParts,
     batchKey: batchKey,
     batchWindowFor: batchWindowFor,
+    isFourDayProtein: isFourDayProtein,
+    maxFwdForPrep: maxFwdForPrep,
+    canCoverUse: canCoverUse,
     weekendAdjust: weekendAdjust,
     prepStartFromLead: prepStartFromLead,
     validDayWindow: validDayWindow,
@@ -630,7 +710,6 @@
     exportState: exportState,
     isBatchableRow: isBatchableRow,
     shortDay: shortDay,
-    minLeadForBatch: minLeadForBatch,
     // Back-compat: protein window is now 4
     EXPIRY_MAX: 4
   };

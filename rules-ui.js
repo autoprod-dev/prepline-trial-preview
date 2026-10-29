@@ -85,7 +85,7 @@
         '<label>Match <select id="rpMode"><option value="first"' + (p.matchMode !== 'stack' ? ' selected' : '') + '>First match wins</option><option value="stack"' + (p.matchMode === 'stack' ? ' selected' : '') + '>Stack / continue</option></select></label>' +
         '<label title="All categories: Sat/Sun raw starts move forward to Monday, or back to Friday if Monday is on/after the function day. Sunday never."><input type="checkbox" id="rpWeekend"' + (p.weekendShift === false ? '' : ' checked') + '> Weekend avoidance (all categories)</label>' +
         '<label title="When off (default), Saturday starts are shifted like weekend. When on, Saturday is allowed as a prep start day."><input type="checkbox" id="rpAllowSat"' + (p.allowSaturdayStarts ? ' checked' : '') + '> Allow Saturday starts</label>' +
-        '<label title="Soft guidance when Saturday starts are allowed (not a hard lock).">Sat cap <input type="number" id="rpSatCap" min="1" max="20" step="1" value="' + (Number.isFinite(Number(p.saturdayCap)) ? Number(p.saturdayCap) : 3) + '" style="width:3.2em"></label>' +
+        '<label title="Soft guidance when Saturday starts are allowed (not a hard lock).">Sat cap <input type="number" id="rpSatCap" min="0" max="20" step="1" value="' + (Number.isFinite(Number(p.saturdayCap)) ? Number(p.saturdayCap) : 3) + '" style="width:3.2em"></label>' +
         '<button type="button" id="rpNewProf">New profile</button>' +
         '<button type="button" id="rpDup">Duplicate</button>' +
         '<button type="button" id="rpExport">Export JSON</button>' +
@@ -117,7 +117,7 @@
     var allowSat = card.querySelector('#rpAllowSat');
     if (allowSat) allowSat.onchange = function () { p.allowSaturdayStarts = !!this.checked; R().saveProfile(p); if (R().syncBatchableToUi) R().syncBatchableToUi(p); };
     var satCap = card.querySelector('#rpSatCap');
-    if (satCap) satCap.onchange = function () { var n = Number(this.value); p.saturdayCap = Number.isFinite(n) && n > 0 ? n : 3; R().saveProfile(p); if (R().syncBatchableToUi) R().syncBatchableToUi(p); };
+    if (satCap) satCap.onchange = function () { var n = Number(this.value); p.saturdayCap = Number.isFinite(n) && n >= 0 ? n : 3; R().saveProfile(p); if (R().syncBatchableToUi) R().syncBatchableToUi(p); };
     (function fillBatch(){
       var box = card.querySelector('#rpBatchChecks'); if (!box) return;
       if (!p.batchable) p.batchable = {};

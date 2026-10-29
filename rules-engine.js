@@ -75,7 +75,7 @@
       weekendShift: true, // 4.6.2: weekend avoidance for ALL categories (profile toggle)
       allowSaturdayStarts: false, // default: no Saturday starts
       saturdayCap: 3, // optional soft cap when Saturday starts allowed
-      prepDaysVersion: '4.6.2',
+      prepDaysVersion: '4.6.3',
       batchable: batchable, // cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
