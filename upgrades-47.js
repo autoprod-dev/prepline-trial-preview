@@ -1,8 +1,8 @@
 /* Prepline 4.7.x upgrades (trial copy only). Autoprod.
  * 1 Week view  2 Tick-off  3 Change check  4 Order-from-batches
  * 5 Recipe/yield lib  6 Station sheets  7 Voice input  8 Auto-section
- * 10 Organised yellow-header xlsx export
- * Shared row builder used by screen + export where noted.
+ * 10 Organised yellow-header xlsx (10 cols) + By item view + drag order
+ * Shared row builder used by screen + export.
  */
 (function (root) {
   'use strict';
@@ -778,52 +778,214 @@
     return '<span class="u47-secbadge" title="' + escH(tip) + '">→ ' + escH(suggestion.section) + '</span>';
   }
 
-  /* ---------- 10) Organised yellow-header xlsx ---------- */
-  function buildExportRows(rows, deps, helpers) {
+  /* ---------- 10) Organised rows (shared screen + export) ---------- */
+  var ORGANISED_HEADERS = [
+    'Function name', 'Dish name', 'Pax / packs', 'Prep day', 'Event day',
+    'Item name', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated'
+  ];
+  var ORDER_KEY = 'prepline.organised.order.v1';
+  var ITEM_VIEW_KEY = 'prepline.organised.itemView.v1';
+
+  function forwardDaysGap(from, to) {
+    var a = dayIdx(from), b = dayIdx(to);
+    if (a < 0 || b < 0) return null;
+    return (b - a + 7) % 7;
+  }
+
+  function normItem(s) {
+    return String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9\s/+.-]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function paxForDishes(dishes, helpers) {
+    var paxMap = (helpers && helpers.paxByDish) || {};
+    var vals = [];
+    var seen = {};
+    (dishes || []).forEach(function (d) {
+      var n = paxMap[d];
+      if (n == null || n === '') return;
+      var s = String(n);
+      if (seen[s]) return;
+      seen[s] = true;
+      vals.push(s);
+    });
+    return vals.length ? vals.join(' / ') : '—';
+  }
+
+  function eventDaysForGroup(g, deps) {
+    var getEventDay = (deps && deps.getEventDay) || function () { return ''; };
+    var days = [], seen = {};
+    (g.rows || []).forEach(function (r) {
+      var ed = getEventDay(r.dish) || '';
+      if (!ed || seen[ed]) return;
+      seen[ed] = true;
+      days.push(ed);
+    });
+    if (!days.length && g.covers) return String(g.covers);
+    days.sort(function (a, b) { return dayIdx(a) - dayIdx(b); });
+    if (!days.length) return '—';
+    if (days.length === 1) return days[0];
+    return days.map(shortDay).join('/');
+  }
+
+  function latestEventDay(g, deps) {
+    var getEventDay = (deps && deps.getEventDay) || function () { return ''; };
+    var best = '', bi = -1;
+    (g.rows || []).forEach(function (r) {
+      var ed = getEventDay(r.dish) || '';
+      var i = dayIdx(ed);
+      if (i > bi) { bi = i; best = ed; }
+    });
+    return best;
+  }
+
+  function rowKeyFor(g, batchNo) {
+    var dishes = (g.dishes || []).slice().sort().join('|');
+    return [g.taskLabel || '', g.day || '', dishes, String(batchNo)].join('::');
+  }
+
+  function getSavedOrder() {
+    var arr = lsGet(ORDER_KEY, []);
+    return Array.isArray(arr) ? arr : [];
+  }
+  function saveOrder(keys) {
+    lsSet(ORDER_KEY, keys || []);
+  }
+  function resetOrder() {
+    try { localStorage.removeItem(ORDER_KEY); } catch (e) {}
+  }
+
+  function getItemViewState() {
+    var s = lsGet(ITEM_VIEW_KEY, null) || {};
+    return {
+      mode: s.mode === 'section' ? 'section' : 'item',
+      sortCol: s.sortCol || null,
+      sortDir: s.sortDir === 'desc' ? 'desc' : 'asc',
+      filters: s.filters && typeof s.filters === 'object' ? s.filters : {}
+    };
+  }
+  function setItemViewState(patch) {
+    var cur = getItemViewState();
+    Object.keys(patch || {}).forEach(function (k) { cur[k] = patch[k]; });
+    lsSet(ITEM_VIEW_KEY, cur);
+    return cur;
+  }
+
+  function buildOrganisedRows(rows, deps, helpers) {
     helpers = helpers || {};
+    deps = deps || {};
     var clean = helpers.cleanDishName || function (d) { return d; };
-    var computeTotal = (deps && deps.computeTotal) || function () { return null; };
-    var toBaseQty = (deps && deps.toBaseQty) || function (n, u) { return { n: n, u: u }; };
+    var staffBySection = helpers.staffBySection || {};
     var batches = (root.PreplineBatch && root.PreplineBatch.buildBatches)
       ? root.PreplineBatch.buildBatches(rows, deps) : [];
-    var staffBySection = helpers.staffBySection || {};
     var out = [];
     var batchNo = 0;
     batches.forEach(function (g) {
       batchNo += 1;
-      var dishName = g.merged
+      var names = functionNamesForGroup(g, clean);
+      var functionName = g.merged
         ? mergedSubtitleText(g, { cleanDishName: clean, maxNames: 99 })
-        : clean((g.dishes && g.dishes[0]) || '');
-      if (!dishName) dishName = clean((g.dishes && g.dishes[0]) || '') || '—';
-      // For merged, Function name cell gets "Merged: A + B"; also keep plain join as fallback note
-      if (g.merged && dishName.indexOf('Merged:') !== 0) {
-        dishName = mergedSubtitleText(g, { cleanDishName: clean });
-      }
-      if (!g.merged) {
-        dishName = (g.dishes || []).map(clean).filter(Boolean).join(' + ') || '—';
-      }
-      var qtyEach = '';
+        : (names[0] || clean((g.dishes && g.dishes[0]) || '') || '—');
+      if (!functionName) functionName = '—';
+      var dishName = names.length ? names.join(' + ') : '—';
+      var prepDay = g.day || '—';
+      var eventDay = eventDaysForGroup(g, deps);
+      var latestEv = latestEventDay(g, deps);
+      var gap = (prepDay && prepDay !== '—' && latestEv) ? forwardDaysGap(prepDay, latestEv) : null;
+      var shadeLate = gap != null && gap > 4;
+      var qtyEach = '—';
       if (g.rows && g.rows[0] && g.rows[0].qty !== '' && g.rows[0].qty != null) {
         qtyEach = String(g.rows[0].qty) + (g.rows[0].unit ? ' ' + g.rows[0].unit : '');
-      } else {
-        qtyEach = '—';
       }
       var qtyTotal = g.hasTotal
         ? (String(Math.round(g.total * 1000) / 1000) + ' ' + (g.unit || '')).trim()
         : 'set pax';
       var staff = staffBySection[g.section] || helpers.defaultStaff || 'Unallocated';
-      out.push({
+      var itemName = g.taskLabel || '—';
+      var cells = {
+        functionName: functionName || '—',
         dishName: dishName || '—',
-        itemName: g.taskLabel || '—',
+        paxPacks: paxForDishes(g.dishes, helpers) || '—',
+        prepDay: prepDay || '—',
+        eventDay: eventDay || '—',
+        itemName: itemName || '—',
         qtyEach: qtyEach || '—',
         qtyTotal: qtyTotal || '—',
         batchNo: String(batchNo),
-        staff: staff || 'Unallocated',
+        staff: staff || 'Unallocated'
+      };
+      Object.keys(cells).forEach(function (k) {
+        if (cells[k] == null || cells[k] === '') cells[k] = '—';
+      });
+      out.push({
+        key: rowKeyFor(g, batchNo),
+        cells: cells,
+        values: [
+          cells.functionName, cells.dishName, cells.paxPacks, cells.prepDay, cells.eventDay,
+          cells.itemName, cells.qtyEach, cells.qtyTotal, cells.batchNo, cells.staff
+        ],
+        section: g.section || '—',
         merged: !!g.merged,
-        group: g
+        shadeLate: shadeLate,
+        gap: gap,
+        group: g,
+        itemNorm: normItem(itemName),
+        eventIdx: dayIdx(latestEv),
+        functionNorm: normItem(functionName)
       });
     });
+
+    out.sort(function (a, b) {
+      if (a.itemNorm < b.itemNorm) return -1;
+      if (a.itemNorm > b.itemNorm) return 1;
+      if (a.eventIdx !== b.eventIdx) {
+        if (a.eventIdx < 0) return 1;
+        if (b.eventIdx < 0) return -1;
+        return a.eventIdx - b.eventIdx;
+      }
+      if (a.functionNorm < b.functionNorm) return -1;
+      if (a.functionNorm > b.functionNorm) return 1;
+      return 0;
+    });
+
+    var saved = getSavedOrder();
+    if (saved && saved.length) {
+      var byKey = {};
+      out.forEach(function (r) { byKey[r.key] = r; });
+      var ordered = [];
+      var used = {};
+      saved.forEach(function (k) {
+        if (byKey[k] && !used[k]) { ordered.push(byKey[k]); used[k] = true; }
+      });
+      out.forEach(function (r) {
+        if (!used[r.key]) ordered.push(r);
+      });
+      out = ordered;
+    }
     return out;
+  }
+
+  function buildExportRows(rows, deps, helpers) {
+    return buildOrganisedRows(rows, deps, helpers).map(function (r) {
+      return {
+        dishName: r.cells.dishName,
+        itemName: r.cells.itemName,
+        qtyEach: r.cells.qtyEach,
+        qtyTotal: r.cells.qtyTotal,
+        batchNo: r.cells.batchNo,
+        staff: r.cells.staff,
+        functionName: r.cells.functionName,
+        paxPacks: r.cells.paxPacks,
+        prepDay: r.cells.prepDay,
+        eventDay: r.cells.eventDay,
+        merged: r.merged,
+        shadeLate: r.shadeLate,
+        group: r.group,
+        key: r.key,
+        values: r.values,
+        cells: r.cells
+      };
+    });
   }
 
   function loadExcelJS() {
@@ -839,9 +1001,10 @@
 
   function exportOrganisedXlsx(rows, deps, helpers) {
     helpers = helpers || {};
-    var data = buildExportRows(rows, deps, helpers);
-    var headers = ['Dish name', 'Item name', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated'];
+    var data = buildOrganisedRows(rows, deps, helpers);
+    var headers = ORGANISED_HEADERS.slice();
     var name = 'Prepline_Organised_' + (new Date().toISOString().slice(0, 10)) + '.xlsx';
+    var lateFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
 
     function downloadBlob(buf, filename) {
       var a = document.createElement('a');
@@ -857,33 +1020,43 @@
         views: [{ state: 'frozen', ySplit: 1, activeCell: 'A2', showGridLines: true }]
       });
       ws.columns = [
-        { key: 'dishName', width: 36 },
+        { key: 'functionName', width: 28 },
+        { key: 'dishName', width: 28 },
+        { key: 'paxPacks', width: 12 },
+        { key: 'prepDay', width: 12 },
+        { key: 'eventDay', width: 14 },
         { key: 'itemName', width: 32 },
-        { key: 'qtyEach', width: 14 },
-        { key: 'qtyTotal', width: 18 },
-        { key: 'batchNo', width: 12 },
+        { key: 'qtyEach', width: 12 },
+        { key: 'qtyTotal', width: 16 },
+        { key: 'batchNo', width: 10 },
         { key: 'staff', width: 16 }
       ];
       var head = ws.addRow(headers);
       head.eachCell(function (cell) {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
         cell.font = { bold: true, name: 'Arial', size: 11 };
-        cell.alignment = { vertical: 'middle' };
+        cell.alignment = { vertical: 'top', wrapText: true, horizontal: 'left' };
       });
       data.forEach(function (r) {
-        ws.addRow([
-          r.dishName || '—', r.itemName || '—', r.qtyEach || '—',
-          r.qtyTotal || '—', r.batchNo || '—', r.staff || '—'
-        ]);
+        var row = ws.addRow(r.values.map(function (v) { return (v == null || v === '') ? '—' : v; }));
+        row.eachCell(function (cell) {
+          cell.alignment = { vertical: 'top', wrapText: true, horizontal: 'left' };
+          if (r.shadeLate) cell.fill = lateFill;
+          if (cell.value == null || cell.value === '') cell.value = '—';
+        });
       });
-      // Ensure no blanks
       ws.eachRow(function (row, rn) {
         if (rn === 1) return;
-        for (var c = 1; c <= 6; c++) {
+        for (var c = 1; c <= 10; c++) {
           var cell = row.getCell(c);
           if (cell.value == null || cell.value === '') cell.value = '—';
+          cell.alignment = { vertical: 'top', wrapText: true, horizontal: 'left' };
         }
       });
+      ws.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: Math.max(1, data.length + 1), column: 10 }
+      };
       return wb.xlsx.writeBuffer().then(function (buf) {
         downloadBlob(buf, name);
         return { name: name, rows: data.length, headers: headers, data: data, engine: 'exceljs' };
@@ -894,25 +1067,32 @@
       if (typeof XLSX === 'undefined' || !XLSX.utils) throw new Error('XLSX not loaded');
       var aoa = [headers];
       data.forEach(function (r) {
-        aoa.push([r.dishName, r.itemName, r.qtyEach, r.qtyTotal, r.batchNo, r.staff]);
+        aoa.push(r.values.map(function (v) { return (v == null || v === '') ? '—' : v; }));
       });
       var ws = XLSX.utils.aoa_to_sheet(aoa);
       var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
       var bold = { bold: true, name: 'Arial', sz: 11 };
+      var wrapTop = { vertical: 'top', wrapText: true, horizontal: 'left' };
+      var late = { patternType: 'solid', fgColor: { rgb: 'F2F2F2' } };
       headers.forEach(function (_, c) {
         var addr = XLSX.utils.encode_cell({ r: 0, c: c });
         if (!ws[addr]) ws[addr] = { t: 's', v: headers[c] };
-        ws[addr].s = { fill: yellow, font: bold, alignment: { vertical: 'center' } };
+        ws[addr].s = { fill: yellow, font: bold, alignment: wrapTop };
       });
       for (var r = 1; r < aoa.length; r++) {
-        for (var c = 0; c < 6; c++) {
+        for (var c = 0; c < 10; c++) {
           var a = XLSX.utils.encode_cell({ r: r, c: c });
           if (!ws[a] || ws[a].v === '' || ws[a].v == null) ws[a] = { t: 's', v: '—' };
+          var style = { alignment: wrapTop };
+          if (data[r - 1] && data[r - 1].shadeLate) style.fill = late;
+          ws[a].s = Object.assign({}, ws[a].s || {}, style);
         }
       }
       ws['!cols'] = [
-        { wch: 36 }, { wch: 32 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 16 }
+        { wch: 28 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 16 }
       ];
+      ws['!autofilter'] = { ref: 'A1:J' + Math.max(1, aoa.length) };
       ws['!freeze'] = 'A2';
       ws['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
       var wb = XLSX.utils.book_new();
@@ -921,17 +1101,296 @@
       return { name: name, rows: data.length, headers: headers, data: data, engine: 'xlsx' };
     }
 
-    // Prefer ExcelJS (real freeze + yellow). Fall back to XLSX styles.
     if (typeof document !== 'undefined') {
-      // Sync path used by tests that monkey-patch XLSX.writeFile: if helpers.forceXlsx, skip ExcelJS
       if (helpers.forceXlsx) return withXLSX();
-      // Return a thenable so callers can await; also fire-and-forget download
       var pending = loadExcelJS().then(withExcelJS).catch(function () { return withXLSX(); });
-      // Attach sync-ish fields for immediate status
       pending.name = name; pending.rows = data.length; pending.headers = headers; pending.data = data;
       return pending;
     }
     return withXLSX();
+  }
+
+  var COL_KEYS = [
+    'functionName', 'dishName', 'paxPacks', 'prepDay', 'eventDay',
+    'itemName', 'qtyEach', 'qtyTotal', 'batchNo', 'staff'
+  ];
+
+  function applyItemFiltersSort(rows, state) {
+    state = state || getItemViewState();
+    var filters = state.filters || {};
+    var filtered = rows.filter(function (r) {
+      return COL_KEYS.every(function (k) {
+        var f = filters[k];
+        if (!f) return true;
+        return String(r.cells[k] || '').toLowerCase().indexOf(String(f).toLowerCase()) >= 0;
+      });
+    });
+    if (state.sortCol && COL_KEYS.indexOf(state.sortCol) >= 0) {
+      var col = state.sortCol;
+      var dir = state.sortDir === 'desc' ? -1 : 1;
+      filtered = filtered.slice().sort(function (a, b) {
+        var va = String(a.cells[col] || '');
+        var vb = String(b.cells[col] || '');
+        if (col === 'prepDay' || col === 'eventDay') {
+          var ia = dayIdx(va), ib = dayIdx(vb);
+          if (ia >= 0 || ib >= 0) {
+            if (ia < 0) return 1 * dir;
+            if (ib < 0) return -1 * dir;
+            return (ia - ib) * dir;
+          }
+        }
+        if (col === 'itemName') { va = a.itemNorm; vb = b.itemNorm; }
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+    }
+    return filtered;
+  }
+
+  function renderByItemView(rows, deps, helpers) {
+    helpers = helpers || {};
+    var escH = wrapEsc(helpers.escapeHtml || esc);
+    var state = getItemViewState();
+    var all = buildOrganisedRows(rows, deps, helpers);
+    var list = applyItemFiltersSort(all, state);
+    var tickHtml = helpers.tickControlsHtml || function () { return ''; };
+    var batchReason = helpers.batchReasonHtml || function () { return ''; };
+    var unbatchBtn = helpers.unbatchButtonHtml || function () { return ''; };
+
+    var html = '';
+    html += '<div class="u47-itemview" id="u47ItemView" data-no-daynum>';
+    html += '<div class="u47-toolbar no-print">';
+    html += '<div class="viewtoggle u47-itemtoggle">';
+    html += '<button type="button" class="' + (state.mode === 'item' ? '' : 'secondary') + '" data-u47-mode="item">By item</button>';
+    html += '<button type="button" class="' + (state.mode === 'section' ? '' : 'secondary') + '" data-u47-mode="section">By section</button>';
+    html += '</div>';
+    html += '<button type="button" class="secondary" id="u47ResetOrder" title="Clear saved drag order">Reset order</button>';
+    html += '<span class="u47-note" style="margin:0">' + list.length + ' rows · same columns as Organised export · drag ☰ to reorder</span>';
+    html += '</div>';
+
+    html += '<div class="u47-filters no-print">';
+    COL_KEYS.forEach(function (k, i) {
+      var label = ORGANISED_HEADERS[i];
+      var val = (state.filters && state.filters[k]) || '';
+      html += '<label class="u47-filter">' + escH(label) +
+        '<input type="search" data-u47-filter="' + k + '" value="' + escH(val) + '" placeholder="Filter…"></label>';
+    });
+    html += '</div>';
+
+    function sortMark(col) {
+      if (state.sortCol !== col) return '';
+      return state.sortDir === 'desc' ? ' ↓' : ' ↑';
+    }
+
+    function rowCard(r) {
+      var g = r.group;
+      var tick = (state.mode === 'section' && !helpers.print) ? tickHtml(g) : '';
+      var sub = (r.merged && helpers.showMerged !== false) ? batchReason(g) : '';
+      var unb = (state.mode === 'section' && r.merged) ? unbatchBtn(g) : '';
+      return '<article class="u47-card' + (r.shadeLate ? ' u47-late' : '') + (r.merged ? ' u47-merged-row' : '') +
+        '" draggable="false" data-u47-key="' + escH(r.key) + '">' +
+        '<div class="u47-card-top">' +
+          '<button type="button" class="u47-drag" data-u47-drag aria-label="Drag to reorder" title="Drag to reorder">☰</button>' +
+          '<div class="u47-card-main">' +
+            '<div class="u47-card-item"><strong>' + escH(r.cells.itemName) + '</strong>' +
+              (r.merged ? ' <span class="u47-pill">merged</span>' : '') + '</div>' +
+            '<div class="u47-card-meta">' + escH(r.cells.functionName) +
+              (r.cells.functionName !== r.cells.dishName ? ' · ' + escH(r.cells.dishName) : '') + '</div>' +
+            '<div class="u47-card-meta">' + escH(r.cells.prepDay) + ' prep → ' + escH(r.cells.eventDay) +
+              ' · pax ' + escH(r.cells.paxPacks) + '</div>' +
+            '<div class="u47-card-qty">' + escH(r.cells.qtyEach) + ' each · <b>' + escH(r.cells.qtyTotal) + '</b>' +
+              ' · batch ' + escH(r.cells.batchNo) + ' · ' + escH(r.cells.staff) + '</div>' +
+            sub + unb +
+          '</div>' + tick +
+        '</div></article>';
+    }
+
+    function rowTr(r) {
+      var g = r.group;
+      var tick = (state.mode === 'section' && !helpers.print)
+        ? ('<td class="u47-tickcell">' + tickHtml(g) + '</td>') : '';
+      var cellsHtml = r.values.map(function (v) {
+        return '<td data-u47-v="' + escH(v) + '">' + escH(v) + '</td>';
+      }).join('');
+      return '<tr class="' + (r.shadeLate ? 'u47-late' : '') + (r.merged ? ' u47-merged-row' : '') +
+        '" data-u47-key="' + escH(r.key) + '" draggable="false">' +
+        '<td class="u47-dragcell no-print"><button type="button" class="u47-drag" data-u47-drag aria-label="Drag to reorder">☰</button></td>' +
+        cellsHtml + tick + '</tr>';
+    }
+
+    function tableHead(withTick) {
+      var h = '<div class="u47-table-wrap u47-desktop-only"><table class="u47-table"><thead><tr>' +
+        '<th class="no-print"></th>';
+      ORGANISED_HEADERS.forEach(function (label, i) {
+        var k = COL_KEYS[i];
+        h += '<th><button type="button" class="u47-sort" data-u47-sort="' + k + '">' +
+          escH(label) + sortMark(k) + '</button></th>';
+      });
+      if (withTick) h += '<th class="no-print">Tick</th>';
+      h += '</tr></thead><tbody data-u47-list>';
+      return h;
+    }
+
+    if (state.mode === 'section') {
+      var bySec = {};
+      list.forEach(function (r) {
+        var s = r.section || '—';
+        if (!bySec[s]) bySec[s] = [];
+        bySec[s].push(r);
+      });
+      var secs = Object.keys(bySec).sort(function (a, b) {
+        var ia = SECTION_ORDER.indexOf(a), ib = SECTION_ORDER.indexOf(b);
+        if (ia < 0) ia = 999; if (ib < 0) ib = 999;
+        if (ia !== ib) return ia - ib;
+        return a.localeCompare(b);
+      });
+      secs.forEach(function (sec) {
+        html += '<section class="u47-secblock"><h3 class="u47-sechead">' + escH(sec) +
+          ' <span class="u47-note">(' + bySec[sec].length + ')</span></h3>';
+        html += '<div class="u47-cards u47-phone-only" data-u47-list>' + bySec[sec].map(rowCard).join('') + '</div>';
+        html += tableHead(true) + bySec[sec].map(rowTr).join('') + '</tbody></table></div></section>';
+      });
+    } else {
+      html += '<div class="u47-cards u47-phone-only" data-u47-list>' + list.map(rowCard).join('') + '</div>';
+      html += tableHead(false) + list.map(rowTr).join('') + '</tbody></table></div>';
+    }
+
+    if (!list.length) html += '<div class="panel">No rows match the filters.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function bindByItemView(rootEl, onChange) {
+    if (!rootEl) return;
+    rootEl.querySelectorAll('[data-u47-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setItemViewState({ mode: btn.getAttribute('data-u47-mode') });
+        if (onChange) onChange();
+      });
+    });
+    rootEl.querySelectorAll('[data-u47-sort]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var col = btn.getAttribute('data-u47-sort');
+        var st = getItemViewState();
+        if (st.sortCol === col) {
+          setItemViewState({ sortDir: st.sortDir === 'asc' ? 'desc' : 'asc' });
+        } else {
+          setItemViewState({ sortCol: col, sortDir: 'asc' });
+        }
+        if (onChange) onChange();
+      });
+    });
+    var filterTimer = null;
+    rootEl.querySelectorAll('[data-u47-filter]').forEach(function (inp) {
+      inp.addEventListener('input', function () {
+        clearTimeout(filterTimer);
+        filterTimer = setTimeout(function () {
+          var st = getItemViewState();
+          var filters = Object.assign({}, st.filters);
+          var k = inp.getAttribute('data-u47-filter');
+          var v = inp.value.trim();
+          if (v) filters[k] = v; else delete filters[k];
+          setItemViewState({ filters: filters });
+          if (onChange) onChange();
+        }, 200);
+      });
+    });
+    var reset = rootEl.querySelector('#u47ResetOrder');
+    if (reset) reset.addEventListener('click', function () {
+      resetOrder();
+      setItemViewState({ sortCol: null, sortDir: 'asc' });
+      if (onChange) onChange();
+    });
+
+    var dragKey = null;
+    var longTimer = null;
+    var dragging = false;
+
+    function collectKeys(listEl) {
+      return Array.prototype.map.call(listEl.querySelectorAll('[data-u47-key]'), function (el) {
+        return el.getAttribute('data-u47-key');
+      });
+    }
+    function persistFromDom() {
+      var lists = rootEl.querySelectorAll('[data-u47-list]');
+      var keys = [];
+      if (lists.length) {
+        var best = collectKeys(lists[0]);
+        for (var i = 0; i < lists.length; i++) {
+          var kk = collectKeys(lists[i]);
+          if (kk.length >= best.length) best = kk;
+        }
+        keys = best;
+      }
+      saveOrder(keys);
+    }
+
+    rootEl.querySelectorAll('[data-u47-list]').forEach(function (listEl) {
+      listEl.querySelectorAll('[data-u47-key]').forEach(function (row) {
+        var handle = row.querySelector('[data-u47-drag]') || row;
+        handle.addEventListener('mousedown', function () { row.setAttribute('draggable', 'true'); });
+        handle.addEventListener('mouseup', function () { row.setAttribute('draggable', 'false'); });
+        handle.addEventListener('touchstart', function () {
+          longTimer = setTimeout(function () {
+            dragging = true;
+            dragKey = row.getAttribute('data-u47-key');
+            row.classList.add('u47-dragging');
+          }, 350);
+        }, { passive: true });
+        handle.addEventListener('touchend', function () {
+          clearTimeout(longTimer);
+          if (dragging) {
+            dragging = false;
+            row.classList.remove('u47-dragging');
+            persistFromDom();
+            if (onChange) onChange();
+          }
+          dragKey = null;
+        });
+        handle.addEventListener('touchmove', function (e) {
+          if (!dragging) { clearTimeout(longTimer); return; }
+          var t = e.touches[0];
+          var el = document.elementFromPoint(t.clientX, t.clientY);
+          var target = el && el.closest ? el.closest('[data-u47-key]') : null;
+          if (target && target.parentNode === listEl && target !== row) {
+            var rect = target.getBoundingClientRect();
+            if (t.clientY < rect.top + rect.height / 2) listEl.insertBefore(row, target);
+            else listEl.insertBefore(row, target.nextSibling);
+          }
+        }, { passive: true });
+
+        row.addEventListener('dragstart', function (e) {
+          dragKey = row.getAttribute('data-u47-key');
+          row.classList.add('u47-dragging');
+          try { e.dataTransfer.setData('text/plain', dragKey); e.dataTransfer.effectAllowed = 'move'; } catch (err) {}
+        });
+        row.addEventListener('dragend', function () {
+          row.classList.remove('u47-dragging');
+          row.setAttribute('draggable', 'false');
+          persistFromDom();
+          dragKey = null;
+          if (onChange) onChange();
+        });
+      });
+      listEl.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        var target = e.target.closest ? e.target.closest('[data-u47-key]') : null;
+        if (!target || !dragKey) return;
+        var moving = null;
+        try {
+          moving = listEl.querySelector('[data-u47-key="' + dragKey.replace(/"/g, '\\"') + '"]');
+        } catch (err) {
+          listEl.querySelectorAll('[data-u47-key]').forEach(function (el) {
+            if (el.getAttribute('data-u47-key') === dragKey) moving = el;
+          });
+        }
+        if (!moving || moving === target) return;
+        var rect = target.getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) listEl.insertBefore(moving, target);
+        else listEl.insertBefore(moving, target.nextSibling);
+      });
+    });
   }
 
   /* ---------- CSS ---------- */
@@ -955,7 +1414,29 @@
       '.u47-secbadge{display:inline-block;margin-left:6px;font-size:11px;padding:2px 7px;border-radius:999px;background:#E8F0FE;color:#1A56DB;}',
       '.u47-merged-short{display:none;}',
       '@media (max-width:520px){.u47-merged-full{display:none;}.u47-merged-short{display:inline;}}',
-      '.u47-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;}'
+      '.u47-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;align-items:center;}',
+      '.u47-itemview{margin-top:8px;}',
+      '.u47-filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin:0 0 12px;}',
+      '.u47-filter{font-size:11px;color:var(--ink-soft,#5C5A52);display:flex;flex-direction:column;gap:2px;}',
+      '.u47-filter input{font-size:12px;padding:4px 6px;border:1px solid var(--line,#D9D3C3);border-radius:6px;}',
+      '.u47-table-wrap{max-height:70vh;overflow:auto;border:1px solid var(--line,#D9D3C3);border-radius:8px;background:#fff;}',
+      '.u47-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;}',
+      '.u47-table thead th{position:sticky;top:0;z-index:2;background:#FFFF00;font-weight:700;text-align:left;padding:8px 8px;border-bottom:1px solid #ccc;white-space:nowrap;}',
+      '.u47-table td{padding:8px;border-bottom:1px solid #eee;vertical-align:top;white-space:normal;word-break:break-word;}',
+      '.u47-table tr.u47-late td,.u47-card.u47-late{background:#F2F2F2;}',
+      '.u47-sort{background:none;border:none;font:inherit;font-weight:700;cursor:pointer;padding:0;text-align:left;}',
+      '.u47-drag{width:36px;height:36px;border:1px solid var(--line,#D9D3C3);border-radius:8px;background:#fff;cursor:grab;font-size:16px;}',
+      '.u47-dragging{opacity:.55;outline:2px dashed #1C1B16;}',
+      '.u47-cards{display:flex;flex-direction:column;gap:10px;}',
+      '.u47-card{border:1px solid var(--line,#D9D3C3);border-radius:10px;padding:10px;background:#fff;}',
+      '.u47-card-top{display:flex;gap:8px;align-items:flex-start;}',
+      '.u47-card-item{font-size:15px;}',
+      '.u47-card-meta{font-size:12px;color:var(--ink-soft,#5C5A52);margin-top:2px;}',
+      '.u47-card-qty{font-size:13px;margin-top:6px;}',
+      '.u47-pill{font-size:10px;padding:1px 6px;border-radius:999px;background:#FFF4C2;color:#6B4F28;vertical-align:middle;}',
+      '.u47-phone-only{display:none;}',
+      '.u47-desktop-only{display:block;}',
+      '@media (max-width:720px){.u47-phone-only{display:flex;}.u47-desktop-only{display:none;}.u47-filters{grid-template-columns:1fr 1fr;}}'
     ].join('');
   }
   function ensureCss() {
@@ -968,7 +1449,7 @@
   }
 
   root.PreplineUpgrades47 = {
-    VERSION: '4.7.0',
+    VERSION: '4.7.1',
     buildWeekGroups: buildWeekGroups,
     renderWeekView: renderWeekView,
     mergedSubtitleText: mergedSubtitleText,
@@ -1020,8 +1501,18 @@
     learnSectionsFromRows: learnSectionsFromRows,
     suggestSection: suggestSection,
     sectionBadgeHtml: sectionBadgeHtml,
+    ORGANISED_HEADERS: ORGANISED_HEADERS,
+    buildOrganisedRows: buildOrganisedRows,
     buildExportRows: buildExportRows,
     exportOrganisedXlsx: exportOrganisedXlsx,
+    renderByItemView: renderByItemView,
+    bindByItemView: bindByItemView,
+    applyItemFiltersSort: applyItemFiltersSort,
+    getItemViewState: getItemViewState,
+    setItemViewState: setItemViewState,
+    getSavedOrder: getSavedOrder,
+    saveOrder: saveOrder,
+    resetOrder: resetOrder,
     ensureCss: ensureCss,
     latestDeliveryDay: latestDeliveryDay,
     SHELF_DAYS: SHELF_DAYS

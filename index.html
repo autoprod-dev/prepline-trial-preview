@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.0-trial">
+<meta name="prepline-version" content="4.7.1-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -921,7 +921,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.0</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.1</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1392,7 +1392,7 @@ let paxByDish = {}; // dish name -> number (pax count for that dish)
 let originalPageImages = {}; // dish name -> [{dataUrl, pageLabel}, ...] — main page first, then each sub-recipe's own page
 let methodCrops = {}; // dish name -> [{dataUrl, pageLabel}, ...] — just the cropped Method: region of each of those same pages
 let originalImagesTruncated = false; // true once a save had to drop images to fit storage
-let viewMode = 'dish'; // 'dish' | 'section' | 'priority' | 'week' | 'order47' | 'recipes' | 'voice'
+let viewMode = 'dish'; // 'dish' | 'section' | 'priority' | 'week' | 'order47' | 'recipes' | 'voice' | 'item'
 
 // ---------- persistent recipe database ----------
 // Upload once to build this; from then on the tool opens straight into the weekly
@@ -1508,7 +1508,7 @@ function loadOnetimeSession(){
       paxByDish = cleanPaxMap(s.paxByDish);
       migratePdfBasePax(ROWS, paxByDish);
       activeFilter = typeof s.activeFilter==='string' ? s.activeFilter : 'all';
-      viewMode = ['dish','section','priority','order','order47','week','recipes','voice','orig'].includes(s.viewMode) ? s.viewMode : 'dish';
+      viewMode = ['dish','section','priority','order','order47','week','recipes','voice','item','orig'].includes(s.viewMode) ? s.viewMode : 'dish';
       eventDayOverride = isObj(s.eventDayOverride) ? s.eventDayOverride : {};
       eventDateByDish = isObj(s.eventDateByDish) ? s.eventDateByDish : {};
       rosteredChefs = isObj(s.rosteredChefs) ? s.rosteredChefs : {};
@@ -1778,7 +1778,7 @@ function setDayOrder(d){ dayOrderDesc = d === 'desc'; try{ localStorage.setItem(
 // Rank of a prep day in the chosen order (unscheduled / unknown always last).
 function dayRank(w){ const i = WEEKDAYS.indexOf(w); return i < 0 ? 99 : (dayOrderDesc ? 6 - i : i); }
 function dayOrderList(){ return dayOrderDesc ? WEEKDAYS.slice().reverse() : WEEKDAYS.slice(); }
-let sortState = {dish:{col:null,dir:'asc'}, section:{col:null,dir:'asc'}, priority:{col:null,dir:'asc'}, order:{col:null,dir:'asc'}, week:{col:null,dir:'asc'}, order47:{col:null,dir:'asc'}, recipes:{col:null,dir:'asc'}, voice:{col:null,dir:'asc'}};
+let sortState = {dish:{col:null,dir:'asc'}, section:{col:null,dir:'asc'}, priority:{col:null,dir:'asc'}, order:{col:null,dir:'asc'}, week:{col:null,dir:'asc'}, order47:{col:null,dir:'asc'}, recipes:{col:null,dir:'asc'}, voice:{col:null,dir:'asc'}, item:{col:null,dir:'asc'}};
 function setAllSort(col, dir){
   col = SORT_COLS.includes(col) ? col : null; dir = dir==='desc' ? 'desc' : 'asc';
   Object.keys(sortState).forEach(v=>{ sortState[v] = {col, dir}; });
@@ -5169,6 +5169,7 @@ function render(){
     <button class="${viewMode==='dish'?'':'secondary'}" onclick="setView('dish')" type="button">By dish — how much to make</button>
     <button class="${viewMode==='section'?'':'secondary'}" onclick="setView('section')" type="button">By team section</button>
     <button class="${viewMode==='priority'?'':'secondary'}" onclick="setView('priority')" type="button">By prep day</button>
+    <button class="${viewMode==='item'?'':'secondary'}" onclick="setView('item')" type="button" id="itemViewBtn">By item</button>
     <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet (by supplier)</button>
     <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week view</button>
     <button class="${viewMode==='order47'?'':'secondary'}" onclick="setView('order47')" type="button" id="order47ViewBtn">Order (batched)</button>
@@ -5179,7 +5180,7 @@ function render(){
   <div class="row no-print" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
     ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="Exports this view (By dish) as an editable .xlsx">📊 Export to Excel (editable)</button>`
       : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="Exports this view (By team section) as an editable .xlsx">📊 Export to Excel (editable)</button>`
-      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' ? ''
+      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' ? ''
       : viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports week as editable .xlsx">📊 Export to Excel (editable)</button>`
       : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports this view (By prep day) as an editable .xlsx">📊 Export to Excel (editable)</button>`}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Yellow header, fixed columns, freeze top row">📊 Organised export (yellow header)</button>
@@ -5209,6 +5210,7 @@ function render(){
     : viewMode==='order47' ? renderOrder47()
     : viewMode==='recipes' ? renderRecipes47()
     : viewMode==='voice' ? renderVoice47()
+    : viewMode==='item' ? renderByItem47()
     : (viewMode==='orig' && Object.keys(originalPageImages).length ? renderOriginalsTab() : renderByPriority());
   // v3.4.4: re-rendering after a manual edit keeps the page where it was and keeps focus
   // on the control that was just changed (it used to jump back to the top).
@@ -8417,13 +8419,36 @@ function renderVoice47(){
   if (!window.PreplineUpgrades47) return '';
   return PreplineUpgrades47.voicePanelHtml();
 }
+function renderByItem47(){
+  if (!window.PreplineUpgrades47) return '<div class="panel">By item view unavailable</div>';
+  const staffBySection = {};
+  (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
+  const tickControlsHtml = (g) => PreplineUpgrades47.tickControlsHtml(g, escapeHtml);
+  const batchReasonHtml = (g) => {
+    try {
+      if (window.PreplineBatch && PreplineBatch.batchReasonHtml)
+        return PreplineBatch.batchReasonHtml(g, escapeHtml, batchDeps()) || '';
+    } catch(e){}
+    return PreplineUpgrades47.mergedSubtitleHtml(g, escapeHtml) || '';
+  };
+  const unbatchButtonHtml = (g) => {
+    try {
+      if (!g || !g.merged || !g.batchKey) return '';
+      return '<button class="ghost pb-unbatch" type="button" onclick="unbatchLine(\''+encodeURIComponent(g.batchKey)+'\')" title="Split this batch back into per-dish lines">unbatch</button>';
+    } catch(e){ return ''; }
+  };
+  return PreplineUpgrades47.renderByItemView(viewRows(), batchDeps(), {
+    escapeHtml, cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish,
+    tickControlsHtml, batchReasonHtml, unbatchButtonHtml
+  });
+}
 function exportOrganisedXlsx47(){
   if (!window.PreplineUpgrades47){ setStatus('Organised export unavailable', 'err'); return; }
   try{
     const staffBySection = {};
     (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
     const res = PreplineUpgrades47.exportOrganisedXlsx(viewRows(), batchDeps(), {
-      cleanDishName, staffBySection, defaultStaff: 'Unallocated'
+      cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish
     });
     const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows, yellow header, frozen top row ('+(r&&r.engine||'xlsx')+'). Manual exports still available.', 'ok');
     if (res && typeof res.then === 'function') res.then(done).catch(e=>setStatus('Organised export failed: '+(e&&e.message||e), 'err'));
@@ -8435,6 +8460,7 @@ function bindUpgrades47(){
   const area = document.getElementById('resultsArea');
   PreplineUpgrades47.bindTickControls(area, ()=>render());
   PreplineUpgrades47.bindRecipeLib(document.getElementById('u47Recipes'), ()=>render());
+  try{ PreplineUpgrades47.bindByItemView(document.getElementById('u47ItemView'), ()=>render()); }catch(e){}
   PreplineUpgrades47.bindVoice(document.getElementById('u47Voice'), {
     onAdd: (p)=>{
       const dish = 'Voice add';
