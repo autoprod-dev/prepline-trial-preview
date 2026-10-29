@@ -919,7 +919,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.0</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.2</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1492,7 +1492,7 @@ function loadOnetimeSession(){
     const secOf = r => SECTIONS.includes(r.section) ? r.section : (SECTIONS.includes(r.baseCategory) ? r.baseCategory : 'Vegetables');
     if(isObj(s) && Array.isArray(s.ROWS) && s.ROWS.length && s.ROWS.every(rowOk)){
       ROWS = s.ROWS.map(r=>({dish:r.dish, task:r.task, qty:r.qty==null?'':r.qty, unit:r.unit==null?'':r.unit,
-        section:secOf(r), baseCategory:SECTIONS.includes(r.baseCategory)?r.baseCategory:secOf(r), flagged:!!r.flagged || !SECTIONS.includes(r.section), day:typeof r.day==='string'?r.day:'', stageNum:Number.isFinite(r.stageNum)?r.stageNum:1, prepCat:typeof r.prepCat==='string'?r.prepCat:'', leadDays:Number.isFinite(r.leadDays)?r.leadDays:null, prepSrc:typeof r.prepSrc==='string'?r.prepSrc:'', weekendShift:!!r.weekendShift,
+        section:secOf(r), baseCategory:SECTIONS.includes(r.baseCategory)?r.baseCategory:secOf(r), flagged:!!r.flagged || !SECTIONS.includes(r.section), day:typeof r.day==='string'?r.day:'', dayReason:typeof r.dayReason==='string'?r.dayReason:'', stageNum:Number.isFinite(r.stageNum)?r.stageNum:1, prepCat:typeof r.prepCat==='string'?r.prepCat:'', leadDays:Number.isFinite(r.leadDays)?r.leadDays:null, prepSrc:typeof r.prepSrc==='string'?r.prepSrc:'', weekendShift:!!r.weekendShift,
         // v3.2: a PDF row's fixed batch total must survive a reload too, or every PDF total turns into "set pax"
         ...(Number.isFinite(r.pdfFixedTotal) ? {pdfFixedTotal:r.pdfFixedTotal} : {}),
         // v3.2.2: the batch yield a PDF total was printed for (the base pax it scales from)
@@ -1630,9 +1630,10 @@ function generateWeekly(){
     const eventDay = getEventDay(dish);
     dishDatabase[dish].items.forEach(it=>{
       const pinf = it.prepCat !== undefined ? {prepCat:it.prepCat||'', leadDays:Number.isFinite(it.leadDays)?it.leadDays:null, prepSrc:it.prepSrc||'', weekendShift:!!it.weekendShift} : prepInfoFor(it.task, null, it.section);
-      const day = eventDay ? prepStartDay(eventDay, {stageNum:it.stageNum, leadDays:pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}) : '';
+      const _pi = eventDay ? prepStartDayInfo(eventDay, {stageNum:it.stageNum, leadDays:pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}) : {day:'',reason:''};
+      const day = _pi.day || '';
       ROWS.push({dish, task:it.task, qty:it.qty, unit:it.unit, section:it.section,
-        baseCategory:it.baseCategory, flagged:it.flagged, day, stageNum:it.stageNum, ...pinf,
+        baseCategory:it.baseCategory, flagged:it.flagged, day, dayReason:_pi.reason||'', stageNum:it.stageNum, ...pinf,
         pdfFixedTotal:it.pdfFixedTotal, srcSheet:it.srcSheet, srcSheetIdx:it.srcSheetIdx, srcType:it.srcType,
         ...(Number.isFinite(it.pdfBasePax) ? {pdfBasePax:it.pdfBasePax} : {})});
     });
@@ -2151,6 +2152,25 @@ function prepWeekendShiftEnabled(){
   }catch(e){}
   return true;
 }
+function prepAllowSaturdayStarts(){
+  try{
+    if (window.PreplineRules && typeof window.PreplineRules.getProfile === 'function'){
+      const p = window.PreplineRules.getProfile();
+      if (p && p.allowSaturdayStarts === true) return true;
+    }
+  }catch(e){}
+  return false;
+}
+function prepSaturdayCap(){
+  try{
+    if (window.PreplineRules && typeof window.PreplineRules.getProfile === 'function'){
+      const p = window.PreplineRules.getProfile();
+      const n = Number(p && p.saturdayCap);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }catch(e){}
+  return 3;
+}
 function prepInfoFor(text, legendPrep, section){
   let c = null, src = '';
   if (legendPrep){
@@ -2195,34 +2215,55 @@ function prepInfoFor(text, legendPrep, section){
   return info;
 }
 // the weekday a line starts: lead days before the event (closed days push it earlier), else the old stage rule.
-// 4.4.2 weekend soft-shift (4-day group only, when profile.weekendShift !== false and r.weekendShift):
-//   if 4 days before is Sat/Sun → use 3; if that lands on Sat/Sun → next working day (Mon). Never Sat/Sun.
-function prepStartDay(eventDay, r){
-  if (!eventDay) return '';
+// 4.6.2 weekend avoidance for ALL categories (when Rules profile weekendShift is on):
+//   Sunday never; Sat/Sun raw → forward to Monday, or back to Friday if Monday is on/after the function day.
+//   Saturday starts only when allowSaturdayStarts is on (default off). Shift reason stored on r.dayReason.
+function prepStartDayInfo(eventDay, r){
+  if (!eventDay) return { day: '', reason: '', raw: '' };
   const lead = r && Number.isFinite(r.leadDays) ? r.leadDays : null;
-  if (lead === null) return calendarDayForPrepNum(eventDay, r ? r.stageNum : null) || '';
-  const idx = WEEKDAYS.indexOf(eventDay); if (idx < 0) return '';
+  if (lead === null){
+    const d = calendarDayForPrepNum(eventDay, r ? r.stageNum : null) || '';
+    return { day: d, reason: '', raw: d };
+  }
+  const avoid = prepWeekendShiftEnabled();
+  const allowSat = prepAllowSaturdayStarts();
+  if (window.PreplineBatch && typeof PreplineBatch.prepStartFromLead === 'function'){
+    PreplineBatch.setAvoidWeekend(avoid);
+    PreplineBatch.setAllowSaturday(allowSat);
+    const info = PreplineBatch.prepStartFromLead(eventDay, lead, {
+      avoidWeekend: avoid,
+      allowSaturday: allowSat,
+      blockedDays: blockedDays
+    });
+    return info || { day: '', reason: '', raw: '' };
+  }
+  // Fallback without batching module
+  const idx = WEEKDAYS.indexOf(eventDay); if (idx < 0) return { day: '', reason: '', raw: '' };
   let offset = lead;
-  const shift = prepWeekendShiftEnabled() && r && r.weekendShift && lead >= 4;
-  if (shift){
-    const day4 = WEEKDAYS[((idx - 4) % 7 + 7) % 7];
-    if (day4 === 'Saturday' || day4 === 'Sunday'){
-      offset = 3;
-      let day3 = WEEKDAYS[((idx - offset) % 7 + 7) % 7];
-      // if 3-days-before is still weekend (Sun after Wed event), start next working day (Mon)
-      while (offset > 0 && (day3 === 'Saturday' || day3 === 'Sunday')){
-        offset--;
-        day3 = WEEKDAYS[((idx - offset) % 7 + 7) % 7];
-      }
-    }
+  let raw = WEEKDAYS[((idx - offset) % 7 + 7) % 7];
+  let day = raw, reason = '';
+  if (avoid && (day === 'Saturday' || day === 'Sunday') && !(day === 'Saturday' && allowSat)){
+    const forward = day === 'Saturday' ? 2 : 1;
+    const leadMon = offset - forward;
+    if (leadMon <= 0){ day = 'Friday'; reason = 'Moved from ' + raw.slice(0,3) + ' to Fri (weekend)'; }
+    else { day = 'Monday'; reason = 'Moved from ' + raw.slice(0,3) + ' to Mon (weekend)'; }
   }
   for (let tries=0; tries<7; tries++){
-    const day = WEEKDAYS[((idx - offset) % 7 + 7) % 7];
-    const weekendBlocked = shift && (day === 'Saturday' || day === 'Sunday');
-    if (!blockedDays.has(day) && !weekendBlocked) return day;
-    offset++; // day-omit / residual weekend: push earlier
+    if (day && !blockedDays.has(day) && day !== 'Sunday' && (day !== 'Saturday' || allowSat)) return { day, reason, raw };
+    offset++;
+    raw = WEEKDAYS[((idx - offset) % 7 + 7) % 7];
+    day = raw; reason = '';
   }
-  return WEEKDAYS[((idx - lead) % 7 + 7) % 7];
+  return { day: WEEKDAYS[((idx - lead) % 7 + 7) % 7], reason: '', raw };
+}
+function prepStartDay(eventDay, r){
+  return prepStartDayInfo(eventDay, r).day;
+}
+function applyPrepStartDay(r, eventDay){
+  const info = prepStartDayInfo(eventDay, r);
+  r.day = info.day || '';
+  r.dayReason = info.reason || '';
+  return r.day;
 }
 function prepCatChip(r){
   if (!r) return '';
@@ -2232,7 +2273,7 @@ function prepCatChip(r){
   const when = lead === 0 ? 'on the day' : (lead + (lead === 1 ? ' day' : ' days') + ' before');
   const ev = prepEventLabel(r.dish);
   const srcTip = r.prepSrc === 'legend' ? 'From the colour legend' : (r.prepSrc === 'rule' ? 'From venue rules' : (r.prepSrc === 'section' ? 'From section' : 'From keywords'));
-  const wk = r.weekendShift ? ' · weekend soft-shift' : '';
+  const wk = r.dayReason ? ' · '+r.dayReason : (r.weekendShift ? ' · weekend avoid' : '');
   return ` <span class="pd-chip" title="${srcTip}${wk}">${escapeHtml(c.label)} · ${when}${r.day ? ' · starts '+escapeHtml(dayLabel(r.day)) : ''}${ev ? ' · '+escapeHtml(ev) : ''}</span>`;
 }
 function prepEventLabel(dish){
@@ -2250,7 +2291,7 @@ function setEventDay(encodedDish, val){
   if (val) eventDayOverride[dish] = val; else delete eventDayOverride[dish];
   const eventDay = getEventDay(dish);
   ROWS.forEach(r=>{
-    if (r.dish===dish && (r.stageNum || Number.isFinite(r.leadDays))) r.day = eventDay ? prepStartDay(eventDay, r) : '';
+    if (r.dish===dish && (r.stageNum || Number.isFinite(r.leadDays))){ if (eventDay) applyPrepStartDay(r, eventDay); else { r.day=''; r.dayReason=''; } }
   });
   render();
 }
@@ -2382,7 +2423,7 @@ function classifyPrepStage(taskText, baseCategory, contextStage){
 function blockedDaysPanelHtml(){
   return `<div class="panel no-print" style="padding:12px 16px; margin-bottom:16px;">
     <div style="font-weight:700; font-size:12.5px; margin-bottom:8px;">Kitchen closed on (public holiday etc.) — prep auto-shifts off these days</div>
-    <div style="font-size:11.5px; color:#5C5A52; margin-bottom:8px;">4-day group (veg / red meat / poultry / dairy / dressings / crab croquettes): weekend soft-shift is on by default in Venue rules — Sat/Sun starts move to a 3-day lead or Monday. Day-omit below still pushes earlier.</div>
+    <div style="font-size:11.5px; color:#5C5A52; margin-bottom:8px;">Weekend avoidance (all categories) is on by default in Venue rules — Sat/Sun starts move forward to Monday, or back to Friday if Monday is on/after the function day. Sunday never; Saturday starts off unless allowed. Day-omit below still pushes earlier.</div>
     <div class="row" style="gap:14px; flex-wrap:wrap;">
       ${WEEKDAYS.map(w=>`<label style="display:inline-flex; align-items:center; gap:5px; font-size:12.5px; cursor:pointer;">
         <input type="checkbox" ${blockedDays.has(w)?'checked':''} onchange="toggleBlockedDay('${w}', this.checked)">${w}
@@ -2400,7 +2441,7 @@ function toggleBlockedDay(day, checked){
     if (!r.stageNum && !Number.isFinite(r.leadDays)) return;
     const eventDay = getEventDay(r.dish);
     if (!eventDay) return;
-    r.day = prepStartDay(eventDay, r) || r.day;
+    applyPrepStartDay(r, eventDay);
   });
   render();
 }
@@ -2633,8 +2674,10 @@ function addRows(dish, items){
     lastCore = core || lastCore;
     // A Prep day column in the file wins over auto-calculation too, for the same reason.
     const pinf = prepInfoFor(taskText, it.legendPrep || null, cat);
-    const day = (typeof it.day==='string' && it.day) ? it.day : (eventDay ? prepStartDay(eventDay, {stageNum, leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}) : '');
-    ROWS.push({dish, task: taskText, qty: it.qty||'', unit: it.unit||'', section: cat, baseCategory: cat, flagged, day, stageNum, ...pinf,
+    let day = '', dayReason = '';
+    if (typeof it.day==='string' && it.day){ day = it.day; }
+    else if (eventDay){ const _pi = prepStartDayInfo(eventDay, {stageNum, leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}); day = _pi.day||''; dayReason = _pi.reason||''; }
+    ROWS.push({dish, task: taskText, qty: it.qty||'', unit: it.unit||'', section: cat, baseCategory: cat, flagged, day, dayReason, stageNum, ...pinf,
       ...(typeof it.srcSheet==='string' ? {srcSheet: it.srcSheet} : {})});
   }
 }
@@ -3986,10 +4029,11 @@ function addPdfRows(dish, tasks, eventDay){
     const disp = pdfQtyToDisplay(t.parsedQty);
     const taskLabel = cleanName + (t.note ? ' — ' + t.note : (disp.value===null ? ' ('+t.qtyRaw+')' : ''));
     const pinf = prepInfoFor(cleanName, null, cat);
-    const day = eventDay ? prepStartDay(eventDay, {stageNum, leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}) : '';
+    const _pi = eventDay ? prepStartDayInfo(eventDay, {stageNum, leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat}) : {day:'',reason:''};
+    const day = _pi.day || '';
     ROWS.push({
       dish, task: taskLabel, qty:'', unit: disp.unit, section: cat, baseCategory: cat,
-      flagged, day, stageNum, ...pinf, pdfFixedTotal: disp.value,
+      flagged, day, dayReason:_pi.reason||'', stageNum, ...pinf, pdfFixedTotal: disp.value,
     });
   }
   return skipped;

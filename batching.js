@@ -1,33 +1,41 @@
-/* Prepline 4.6.0 — cross-dish / cross-day batching + day filter bar.
- * Batch key: normalised ingredient name + prep method + unit.
+/* Prepline 4.6.2 — cross-dish / cross-day batching + day filter bar.
+ * Batch key: normalised ingredient name + prep method + unit (each ingredient own timeline).
  * Valid batch prep day D:
- *   - never Sat/Sun; respect day-omit (blockedDays)
- *   - D <= earliest member function day minus category min lead
- *     (fish/micro min lead 1; longer-lead cats use 0 so the 3-day expiry can merge Mon–Wed)
- *   - (latest member function day − D) <= EXPIRY_MAX (3), regardless of 4-day lead
- * If no single D fits all members, greedy-split into largest valid groups.
- * Every merged line carries prep day + reason (e.g. "Merged: Mon/Tue/Wed uses all within 3-day expiry window").
+ *   - Sunday never; Saturday only if Rules allowSaturdayStarts (default off)
+ *   - Weekend avoidance: Sat/Sun raw → forward Mon, or back Fri if Mon on/after function
+ *   - (latest member function day − D) <= category batchWindow
+ *     (4-day proteins poultry/redmeat/crabcroq = 4; fish/seafood = 1; gels/starch = 3; …)
+ *   - Short-lead cats (fish/micro lead 1) keep min lead 1
+ * Greedy split when no single D fits. Merged lines show prep day + reason.
  */
 (function (root) {
   'use strict';
-  var EXPIRY_MAX = 3;
   var WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   var SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
 
-  // Default: batch these prepCat keys (protein / veg / dry / oils / jus-sauces / starch / dairy / dressing / crab).
   var DEFAULT_BATCHABLE = {
     poultry: true, redmeat: true, seafood: true, veg: true, dry: true, oil: true,
     gels: true, dressing: true, dairy: true, starch: true, crabcroq: true,
     garnish: false, micro: false
   };
 
+  // 4-day proteins share window 4; fish stays 1 (no cross-day merge beyond that).
+  var DEFAULT_BATCH_WINDOW = {
+    poultry: 4, redmeat: 4, seafood: 1, veg: 4, dry: 4, oil: 4,
+    gels: 3, dressing: 4, dairy: 4, starch: 3, crabcroq: 4,
+    garnish: 2, micro: 1
+  };
+
   var state = {
     batchAcrossOn: true,
-    unbatched: {},       // batchKey -> true (user unbatched this key)
-    dayFilter: 'all',    // 'all' | weekday name
+    unbatched: {},
+    dayFilter: 'all',
     sectionFilter: 'all',
-    listAnchor: 'prep',  // 'prep' | 'function' — group/filter by prep day vs function day
-    batchable: Object.assign({}, DEFAULT_BATCHABLE)
+    listAnchor: 'prep',
+    batchable: Object.assign({}, DEFAULT_BATCHABLE),
+    allowSaturdayStarts: false,
+    saturdayCap: 3,
+    avoidWeekend: true
   };
 
   function dayIdx(d) { return WEEKDAYS.indexOf(d); }
@@ -37,11 +45,91 @@
     if (a < 0 || b < 0) return null;
     return (b - a + 7) % 7;
   }
-  /** Shift a weekday back by `n` days (n>=0). */
   function shiftBack(day, n) {
     var i = dayIdx(day);
     if (i < 0) return '';
     return WEEKDAYS[((i - n) % 7 + 7) % 7];
+  }
+
+  function batchWindowFor(cat, lead) {
+    if (cat && Object.prototype.hasOwnProperty.call(DEFAULT_BATCH_WINDOW, cat)) {
+      return DEFAULT_BATCH_WINDOW[cat];
+    }
+    // Vocab override if present
+    try {
+      var vocab = root.PREP_DAYS_VOCAB || [];
+      for (var i = 0; i < vocab.length; i++) {
+        if (vocab[i].key === cat && Number.isFinite(vocab[i].batchWindow)) return vocab[i].batchWindow;
+      }
+    } catch (e) {}
+    var L = Number(lead);
+    if (Number.isFinite(L) && L > 0) return L;
+    return 4;
+  }
+
+  /**
+   * Weekend avoidance (ALL categories when enabled):
+   * Sunday never. Sat/Sun raw → Monday, unless Monday on/after function → Friday.
+   * Saturday kept only when allowSaturdayStarts.
+   */
+  function weekendAdjust(rawDay, functionDay, opts) {
+    opts = opts || {};
+    var allowSat = opts.allowSaturday != null ? !!opts.allowSaturday : !!state.allowSaturdayStarts;
+    var avoid = opts.avoidWeekend != null ? !!opts.avoidWeekend : (state.avoidWeekend !== false);
+    var raw = rawDay;
+    if (!raw) return { day: '', reason: '', raw: '' };
+
+    if (raw === 'Saturday' && allowSat) {
+      return { day: 'Saturday', reason: '', raw: raw };
+    }
+    if (raw !== 'Saturday' && raw !== 'Sunday') {
+      return { day: raw, reason: '', raw: raw };
+    }
+    // Sunday always shifts; Saturday shifts when not allowed
+    if (!avoid && raw === 'Sunday') {
+      // Sunday never even if avoid off
+    } else if (!avoid && raw === 'Saturday' && !allowSat) {
+      // still shift Sat when disallowed
+    } else if (!avoid) {
+      return { day: raw, reason: '', raw: raw };
+    }
+
+    var leadFromRaw = forwardDays(raw, functionDay);
+    if (leadFromRaw == null) {
+      return { day: 'Friday', reason: 'Moved from ' + shortDay(raw) + ' to Fri (weekend)', raw: raw };
+    }
+    var forward = raw === 'Saturday' ? 2 : 1;
+    var leadMon = leadFromRaw - forward;
+    if (leadMon <= 0) {
+      return { day: 'Friday', reason: 'Moved from ' + shortDay(raw) + ' to Fri (weekend)', raw: raw };
+    }
+    return { day: 'Monday', reason: 'Moved from ' + shortDay(raw) + ' to Mon (weekend)', raw: raw };
+  }
+
+  /** Compute prep start day from function + lead with weekend avoidance. */
+  function prepStartFromLead(functionDay, lead, opts) {
+    opts = opts || {};
+    if (!functionDay || !Number.isFinite(Number(lead))) return { day: '', reason: '', raw: '' };
+    var raw = shiftBack(functionDay, Number(lead));
+    var adj = weekendAdjust(raw, functionDay, opts);
+    var blocked = opts.blockedDays;
+    var day = adj.day;
+    var reason = adj.reason;
+    var guard = 0;
+    while (guard++ < 7 && day && blocked && blocked.has && blocked.has(day)) {
+      // push earlier (more lead)
+      var k = forwardDays(day, functionDay);
+      if (k == null) break;
+      var nextRaw = shiftBack(functionDay, k + 1);
+      var next = weekendAdjust(nextRaw, functionDay, opts);
+      day = next.day;
+      if (next.reason) reason = next.reason;
+    }
+    if (day === 'Sunday') {
+      var fix = weekendAdjust('Sunday', functionDay, opts);
+      day = fix.day; reason = fix.reason || reason;
+    }
+    return { day: day, reason: reason, raw: raw };
   }
 
   function normText(s) {
@@ -58,14 +146,12 @@
     'ferment', 'proof', 'bake', 'cook', 'make', 'prep', 'collect', 'weigh', 'drain', 'pat dry'
   ];
 
-  /** Parse "Trim chicken breast" / "Chicken breast / trim" → {name, method, label}. */
   function parseTaskParts(task) {
     var raw = String(task || '').trim();
     var t = normText(raw);
     var method = '', name = t;
     var slash = t.split(/\s*\/\s*/);
     if (slash.length >= 2) {
-      // "chicken breast / trim" or "trim / chicken breast"
       var a = slash[0], b = slash.slice(1).join(' ');
       if (METHOD_VERBS.indexOf(a) >= 0) { method = a; name = b; }
       else if (METHOD_VERBS.indexOf(b) >= 0) { method = b; name = a; }
@@ -107,20 +193,10 @@
   function minLeadForBatch(lead) {
     var L = Number(lead);
     if (!Number.isFinite(L)) return 0;
-    // Fish / micro (lead 1): must start at least 1 day before earliest function.
-    // Longer leads: upper bound is the earliest function day itself; the 3-day
-    // expiry window is what limits how early/late the shared batch can sit.
     return L <= 1 ? L : 0;
   }
 
-  function isWeekend(d) { return d === 'Saturday' || d === 'Sunday'; }
-
-  /**
-   * Latest acceptable D (closest to events) and earliest acceptable D for a set of
-   * function days + category lead. Returns null if empty.
-   * deps: { blockedDays: Set, weekendShift profile unused here — hard never Sat/Sun }
-   */
-  function validDayWindow(funcDays, lead, blocked) {
+  function validDayWindow(funcDays, lead, blocked, cat) {
     var idxs = funcDays.map(dayIdx).filter(function (i) { return i >= 0; });
     if (!idxs.length) return null;
     var earliestIdx = Math.min.apply(null, idxs);
@@ -128,45 +204,44 @@
     var earliestFunc = WEEKDAYS[earliestIdx];
     var latestFunc = WEEKDAYS[latestIdx];
     var span = latestIdx - earliestIdx;
-    if (span > EXPIRY_MAX) return null; // cannot cover in one batch even at earliestFunc
+    var winMax = batchWindowFor(cat, lead);
+    if (span > winMax) return null;
 
     var ml = minLeadForBatch(lead);
-    // D_max: earliestFunc shifted back by min lead (and earlier if that lands on weekend/omit)
-    var dMax = shiftBack(earliestFunc, ml);
-    var guard = 0;
-    while (guard++ < 7 && (isWeekend(dMax) || (blocked && blocked.has && blocked.has(dMax)))) {
-      dMax = shiftBack(dMax, 1);
-    }
-    // D_min: latestFunc - EXPIRY_MAX (may be weekend — candidates skip those)
-    var dMinAbs = latestIdx - EXPIRY_MAX; // may be negative (= previous week)
-    // Enumerate candidates: absolute offsets from earliestFunc
-    // Represent D as days-before earliestFunc: leadFrom(D, earliestFunc) = k, k >= ml
-    // and leadFrom(D, latestFunc) = k + span <= EXPIRY_MAX → k <= EXPIRY_MAX - span
-    var kMin = ml; // at least min lead before earliest
-    var kMax = EXPIRY_MAX - span; // expiry against latest
+    var kMin = ml;
+    var kMax = winMax - span;
     if (kMin > kMax) return null;
 
     var candidates = [];
     for (var k = kMin; k <= kMax; k++) {
-      var d = shiftBack(earliestFunc, k);
-      if (isWeekend(d)) continue;
+      var raw = shiftBack(earliestFunc, k);
+      var adj = weekendAdjust(raw, earliestFunc, {});
+      var d = adj.day;
+      if (!d || d === 'Sunday') continue;
+      if (d === 'Saturday' && !state.allowSaturdayStarts) continue;
       if (blocked && blocked.has && blocked.has(d)) continue;
-      candidates.push({ day: d, k: k });
+      var leadLatest = forwardDays(d, latestFunc);
+      if (leadLatest == null || leadLatest > winMax) continue;
+      var leadEarliest = forwardDays(d, earliestFunc);
+      if (leadEarliest == null) continue;
+      candidates.push({ day: d, k: leadEarliest, reason: adj.reason, raw: raw, winMax: winMax });
     }
     if (!candidates.length) return null;
-    // Prefer latest possible (smallest k) — closest to service
     candidates.sort(function (a, b) { return a.k - b.k; });
+    var best = candidates[0];
     return {
-      day: candidates[0].day,
+      day: best.day,
       candidates: candidates.map(function (c) { return c.day; }),
       earliestFunc: earliestFunc,
       latestFunc: latestFunc,
-      span: span
+      span: span,
+      winMax: winMax,
+      shiftReason: best.reason || '',
+      rawDay: best.raw
     };
   }
 
   function coversPhrase(members, deps) {
-    // "Mon Dish A, Tue Dish B, Wed Dish C"
     var getEventDay = deps.getEventDay || function () { return ''; };
     var cleanDish = deps.cleanDishName || function (d) { return d; };
     return members.map(function (r) {
@@ -188,10 +263,15 @@
       var order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       return order.indexOf(a) - order.indexOf(b);
     });
+    var parts = [];
     if (members.length === 1) {
-      return 'Solo: prep ' + shortDay(win.day) + ' for ' + (days[0] || 'event');
+      parts.push('Solo: prep ' + shortDay(win.day) + ' for ' + (days[0] || 'event'));
+    } else {
+      var w = win.winMax != null ? win.winMax : batchWindowFor(members[0] && members[0].prepCat, null);
+      parts.push('Merged: ' + days.join('/') + ' uses all within ' + w + '-day expiry window');
     }
-    return 'Merged: ' + days.join('/') + ' uses all within ' + EXPIRY_MAX + '-day expiry window';
+    if (win.shiftReason) parts.push(win.shiftReason);
+    return parts.join(' · ');
   }
 
   function isBatchableRow(row) {
@@ -203,10 +283,6 @@
     return !!DEFAULT_BATCHABLE[cat];
   }
 
-  /**
-   * Build batch groups from rows. Non-batchable / unbatched stay as singletons.
-   * deps: { getEventDay, computeTotal, toBaseQty, cleanDishName, blockedDays }
-   */
   function buildBatches(rows, deps) {
     deps = deps || {};
     var blocked = deps.blockedDays || new Set();
@@ -218,7 +294,6 @@
       return rows.map(function (r) { return singleton(r, deps); });
     }
 
-    // Bucket by batch key among batchable rows; others stay solo.
     var buckets = {};
     var order = [];
     var solos = [];
@@ -228,7 +303,6 @@
         return;
       }
       var key = batchKey(r, deps);
-      // Per-key unbatch
       if (state.unbatched[key]) {
         solos.push({ row: r, idx: idx });
         return;
@@ -245,15 +319,12 @@
     var groups = [];
     order.forEach(function (key) {
       var members = buckets[key].slice();
-      // Sort by event day Mon→Sun then dish
       members.sort(function (a, b) {
         var da = dayIdx(a.eventDay), db = dayIdx(b.eventDay);
         if (da !== db) return da - db;
         return String(a.row.dish).localeCompare(String(b.row.dish));
       });
-      // Greedy pack into valid windows
-      var packs = greedyPack(members, blocked);
-      packs.forEach(function (pack) {
+      greedyPack(members, blocked).forEach(function (pack) {
         groups.push(makeGroup(key, pack, deps));
       });
     });
@@ -262,7 +333,6 @@
       groups.push(singleton(s.row, deps));
     });
 
-    // Stable-ish order by prep day then label
     groups.sort(function (a, b) {
       var da = dayIdx(a.day) < 0 ? 99 : dayIdx(a.day);
       var db = dayIdx(b.day) < 0 ? 99 : dayIdx(b.day);
@@ -273,29 +343,41 @@
   }
 
   function greedyPack(members, blocked) {
-    // members: [{row, idx, eventDay}]
     var remaining = members.slice();
     var packs = [];
     while (remaining.length) {
-      // Grow largest prefix (already sorted by event day) that has a valid D
       var best = null;
       for (var len = remaining.length; len >= 1; len--) {
         var slice = remaining.slice(0, len);
-        // Same lead/cat: use first row's
         var lead = Number.isFinite(slice[0].row.leadDays) ? slice[0].row.leadDays : 4;
+        var cat = slice[0].row.prepCat || '';
         var funcDays = slice.map(function (m) { return m.eventDay; });
-        var win = validDayWindow(funcDays, lead, blocked);
+        var win = validDayWindow(funcDays, lead, blocked, cat);
         if (win) { best = { slice: slice, win: win }; break; }
       }
       if (!best) {
-        // Shouldn't happen for len=1 with lead<=1 quirks; force singleton on its own prep day
         var one = remaining.shift();
-        packs.push({ members: [one], win: { day: one.row.day || one.eventDay || '', earliestFunc: one.eventDay, latestFunc: one.eventDay, span: 0 } });
+        var soloInfo = prepStartFromLead(one.eventDay, Number.isFinite(one.row.leadDays) ? one.row.leadDays : 4, { blockedDays: blocked });
+        var soloDay = one.row.day || '';
+        // Prefer weekend-adjusted day when stored day is Sat/Sun (or empty)
+        if (!soloDay || soloDay === 'Saturday' || soloDay === 'Sunday') {
+          soloDay = soloInfo.day || soloDay || one.eventDay || '';
+        }
+        packs.push({
+          members: [one],
+          win: {
+            day: soloDay,
+            earliestFunc: one.eventDay,
+            latestFunc: one.eventDay,
+            span: 0,
+            winMax: batchWindowFor(one.row.prepCat, one.row.leadDays),
+            shiftReason: one.row.dayReason || soloInfo.reason || ''
+          }
+        });
         continue;
       }
       packs.push({ members: best.slice, win: best.win });
       remaining = remaining.slice(best.slice.length);
-      // Re-sort remaining in case we need different order — keep event-day order
     }
     return packs;
   }
@@ -316,7 +398,6 @@
       total += based.n;
       hasTotal = true;
       unit = based.u || unit;
-      // display unit via key
       if (based.key === 'g') unit = 'g';
       if (based.key === 'ml') unit = 'ml';
     });
@@ -350,7 +431,19 @@
     var getEventDay = deps.getEventDay || function () { return ''; };
     var ed = getEventDay(row.dish) || '';
     var day = row.day || '';
-    var win = day ? { day: day, earliestFunc: ed, latestFunc: ed, span: 0 } : null;
+    var shiftReason = row.dayReason || '';
+    if (ed && Number.isFinite(row.leadDays) && (!day || day === 'Saturday' || day === 'Sunday')) {
+      var si = prepStartFromLead(ed, row.leadDays, {});
+      if (si.day) { day = si.day; if (si.reason) shiftReason = si.reason; }
+    }
+    var win = day ? {
+      day: day,
+      earliestFunc: ed,
+      latestFunc: ed,
+      span: 0,
+      winMax: batchWindowFor(row.prepCat, row.leadDays),
+      shiftReason: shiftReason
+    } : null;
     return {
       batchKey: batchKey(row, deps),
       taskLabel: parts.label,
@@ -366,12 +459,11 @@
       dishes: [row.dish],
       merged: false,
       covers: coversPhrase([row], deps),
-      reason: win ? reasonFor(win, [row], deps) : '',
+      reason: win ? reasonFor(win, [row], deps) : (row.dayReason || ''),
       window: win
     };
   }
 
-  // ----- UI state -----
   function setBatchAcross(on) { state.batchAcrossOn = !!on; }
   function toggleUnbatch(key) {
     if (state.unbatched[key]) delete state.unbatched[key];
@@ -382,6 +474,12 @@
   function setSectionFilter(s) { state.sectionFilter = s || 'all'; }
   function setListAnchor(a) { state.listAnchor = (a === 'function') ? 'function' : 'prep'; }
   function setBatchable(cat, on) { state.batchable[cat] = !!on; }
+  function setAllowSaturday(on) { state.allowSaturdayStarts = !!on; }
+  function setSaturdayCap(n) {
+    var v = Number(n);
+    state.saturdayCap = Number.isFinite(v) && v > 0 ? v : 3;
+  }
+  function setAvoidWeekend(on) { state.avoidWeekend = !!on; }
   function getState() { return state; }
   function loadState(s) {
     if (!s || typeof s !== 'object') return;
@@ -391,6 +489,9 @@
     if (typeof s.sectionFilter === 'string') state.sectionFilter = s.sectionFilter;
     if (s.listAnchor === 'prep' || s.listAnchor === 'function') state.listAnchor = s.listAnchor;
     if (s.batchable && typeof s.batchable === 'object') state.batchable = Object.assign({}, DEFAULT_BATCHABLE, s.batchable);
+    if (typeof s.allowSaturdayStarts === 'boolean') state.allowSaturdayStarts = s.allowSaturdayStarts;
+    if (Number.isFinite(Number(s.saturdayCap))) state.saturdayCap = Number(s.saturdayCap);
+    if (typeof s.avoidWeekend === 'boolean') state.avoidWeekend = s.avoidWeekend;
   }
   function exportState() {
     return {
@@ -399,11 +500,13 @@
       dayFilter: state.dayFilter,
       sectionFilter: state.sectionFilter,
       listAnchor: state.listAnchor,
-      batchable: Object.assign({}, state.batchable)
+      batchable: Object.assign({}, state.batchable),
+      allowSaturdayStarts: state.allowSaturdayStarts,
+      saturdayCap: state.saturdayCap,
+      avoidWeekend: state.avoidWeekend
     };
   }
 
-  /** Filter rows by sticky bar (day chip + section). Search stays separate. */
   function filterRows(rows, deps) {
     deps = deps || {};
     var getEventDay = deps.getEventDay || function () { return ''; };
@@ -418,7 +521,6 @@
     });
   }
 
-  /** Counts per day for chips, based on anchor. */
   function dayCounts(rows, deps) {
     deps = deps || {};
     var getEventDay = deps.getEventDay || function () { return ''; };
@@ -489,7 +591,6 @@
     ].join('');
   }
 
-  // Ensure CSS once
   function ensureCss() {
     if (typeof document === 'undefined') return;
     if (document.getElementById('pbBatchCss')) return;
@@ -500,10 +601,13 @@
   }
 
   root.PreplineBatch = {
-    EXPIRY_MAX: EXPIRY_MAX,
     DEFAULT_BATCHABLE: DEFAULT_BATCHABLE,
+    DEFAULT_BATCH_WINDOW: DEFAULT_BATCH_WINDOW,
     parseTaskParts: parseTaskParts,
     batchKey: batchKey,
+    batchWindowFor: batchWindowFor,
+    weekendAdjust: weekendAdjust,
+    prepStartFromLead: prepStartFromLead,
     validDayWindow: validDayWindow,
     buildBatches: buildBatches,
     filterRows: filterRows,
@@ -518,11 +622,16 @@
     setSectionFilter: setSectionFilter,
     setListAnchor: setListAnchor,
     setBatchable: setBatchable,
+    setAllowSaturday: setAllowSaturday,
+    setSaturdayCap: setSaturdayCap,
+    setAvoidWeekend: setAvoidWeekend,
     getState: getState,
     loadState: loadState,
     exportState: exportState,
     isBatchableRow: isBatchableRow,
     shortDay: shortDay,
-    minLeadForBatch: minLeadForBatch
+    minLeadForBatch: minLeadForBatch,
+    // Back-compat: protein window is now 4
+    EXPIRY_MAX: 4
   };
 })(typeof window !== 'undefined' ? window : globalThis);

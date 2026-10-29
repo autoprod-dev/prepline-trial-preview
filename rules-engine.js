@@ -72,9 +72,11 @@
       name: 'Default',
       builtIn: true,
       matchMode: 'first', // first | stack
-      weekendShift: true, // 4-day group soft-shift off Sat/Sun (profile toggle)
-      prepDaysVersion: '4.6.0',
-      batchable: batchable, // 4.6.0: cross-dish batching on/off per prep category
+      weekendShift: true, // 4.6.2: weekend avoidance for ALL categories (profile toggle)
+      allowSaturdayStarts: false, // default: no Saturday starts
+      saturdayCap: 3, // optional soft cap when Saturday starts allowed
+      prepDaysVersion: '4.6.2',
+      batchable: batchable, // cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
     };
@@ -109,12 +111,31 @@
             o.version = 3;
             saveStore(o);
           }
+          // 4.6.2: weekend avoidance + Sat toggles; refresh built-in Default leads/windows
+          if (!o.version || o.version < 4) {
+            var fresh4 = defaultFromVocab();
+            o.profiles.forEach(function (pr) {
+              if (pr.allowSaturdayStarts === undefined) pr.allowSaturdayStarts = false;
+              if (pr.saturdayCap === undefined) pr.saturdayCap = 3;
+              if (pr.weekendShift === undefined) pr.weekendShift = true;
+              if (pr.id === 'default' && pr.builtIn) {
+                pr.rules = fresh4.rules;
+                pr.batchable = Object.assign({}, fresh4.batchable, pr.batchable || {});
+                pr.weekendShift = pr.weekendShift !== false;
+                pr.allowSaturdayStarts = !!pr.allowSaturdayStarts;
+                pr.saturdayCap = Number.isFinite(Number(pr.saturdayCap)) ? Number(pr.saturdayCap) : 3;
+                pr.prepDaysVersion = '4.6.2';
+              }
+            });
+            o.version = 4;
+            saveStore(o);
+          }
           return o;
         }
       }
     } catch (e) {}
     var def = defaultFromVocab();
-    var store = { profiles: [def], version: 2 };
+    var store = { profiles: [def], version: 4 };
     saveStore(store);
     return store;
   }
@@ -182,9 +203,15 @@
 
   function syncBatchableToUi(profile) {
     var p = profile || getProfile();
-    if (root.PreplineBatch && p && p.batchable) {
-      try { root.PreplineBatch.loadState({ batchable: p.batchable }); } catch (e) {}
-    }
+    if (!root.PreplineBatch || !p) return;
+    try {
+      var st = {};
+      if (p.batchable) st.batchable = p.batchable;
+      if (typeof p.allowSaturdayStarts === 'boolean') st.allowSaturdayStarts = p.allowSaturdayStarts;
+      if (Number.isFinite(Number(p.saturdayCap))) st.saturdayCap = Number(p.saturdayCap);
+      if (typeof p.weekendShift === 'boolean') st.avoidWeekend = p.weekendShift !== false;
+      root.PreplineBatch.loadState(st);
+    } catch (e) {}
   }
 
 
