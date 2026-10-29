@@ -1,4 +1,4 @@
-/* Prepline 4.6.3 — cross-dish / cross-day batching + day filter bar.
+/* Prepline 4.7.0 — merged function subtitle + cross-dish / cross-day batching + day filter bar.
  * Batch key: normalised ingredient name + prep method + unit (each ingredient own timeline).
  * Prep day is ALWAYS strictly before earliest member use (never same-day).
  * Per-ingredient greedy (sorted uses, start at earliest U):
@@ -255,10 +255,32 @@
     return days.join('/');
   }
 
+  function functionNames(members, deps) {
+    var clean = (deps && deps.cleanDishName) || function (d) { return d; };
+    var seen = {}, names = [];
+    (members || []).forEach(function (r) {
+      var dish = r && (r.dish || r);
+      var c = clean(dish) || String(dish || '');
+      if (!c || seen[c]) return;
+      seen[c] = true;
+      names.push(c);
+    });
+    return names;
+  }
+
+  function mergedFunctionsPhrase(members, deps, maxNames) {
+    var names = functionNames(members, deps);
+    if (!names.length) return 'Merged';
+    maxNames = maxNames == null ? 99 : maxNames;
+    var shown = names.slice(0, maxNames);
+    var extra = names.length - shown.length;
+    return 'Merged: ' + shown.join(' + ') + (extra > 0 ? ' +' + extra + ' more' : '');
+  }
+
   function reasonFor(win, members, deps) {
     if (!win) return '';
-    // Merged lines: short reason only (days covered rendered separately). No window/expiry essay.
-    if (members && members.length > 1) return 'Merged';
+    // Merged lines: "Merged: Function A + Function B" (days covered rendered separately).
+    if (members && members.length > 1) return mergedFunctionsPhrase(members, deps, 99);
     // Solo: keep a one-line hint; weekend shift note when present.
     var getEventDay = deps.getEventDay || function () { return ''; };
     var ed = members[0] ? (getEventDay(members[0].dish) || members[0].eventDay || '') : '';
@@ -487,6 +509,7 @@
       merged: merged,
       covers: coversPhrase(members, deps),
       reason: reasonFor(win, members, deps),
+      functions: functionNames(members, deps),
       window: win
     };
   }
@@ -529,6 +552,7 @@
       merged: false,
       covers: coversPhrase([row], deps),
       reason: win ? reasonFor(win, [row], deps) : (row.dayReason || ''),
+      functions: functionNames([row], deps),
       window: win
     };
   }
@@ -634,18 +658,26 @@
     '</div>';
   }
 
-  function batchReasonHtml(g, esc) {
+  function batchReasonHtml(g, esc, deps) {
     esc = esc || function (s) { return String(s); };
+    deps = deps || {};
     if (!g) return '';
-    // Merged: ONLY days covered + short reason (prep day is already in the Day column).
+    // Merged: days covered + "Merged: Fn A + Fn B" (short on phone via CSS in upgrades-47).
     if (g.merged) {
       var days = g.covers || '';
-      var reason = g.reason || 'Merged';
-      return '<div class="pb-reason">' +
+      var full = g.reason || mergedFunctionsPhrase(g.rows || g.dishes || [], deps, 99);
+      var short = mergedFunctionsPhrase(g.rows || g.dishes || [], deps, 2);
+      // Prefer PreplineUpgrades47 helper when present (shared screen/export copy).
+      if (root.PreplineUpgrades47 && root.PreplineUpgrades47.mergedSubtitleHtml) {
+        return root.PreplineUpgrades47.mergedSubtitleHtml(g, esc, {
+          cleanDishName: deps.cleanDishName, phoneMax: 2
+        });
+      }
+      return '<div class="pb-reason u47-merged" title="' + esc(full) + '">' +
         (days ? '<span class="pb-covers">' + esc(days) + '</span> · ' : '') +
-        esc(reason) + '</div>';
+        '<span class="u47-merged-full">' + esc(full) + '</span>' +
+        '<span class="u47-merged-short">' + esc(short) + '</span></div>';
     }
-    // Solo: quiet one-liner when present
     if (!g.reason) return '';
     return '<div class="pb-reason">' + esc(g.reason) + '</div>';
   }
@@ -694,6 +726,8 @@
     dayCounts: dayCounts,
     stickyBarHtml: stickyBarHtml,
     batchReasonHtml: batchReasonHtml,
+    functionNames: functionNames,
+    mergedFunctionsPhrase: mergedFunctionsPhrase,
     ensureCss: ensureCss,
     setBatchAcross: setBatchAcross,
     toggleUnbatch: toggleUnbatch,

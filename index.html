@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.0.1-ubs">
+<meta name="prepline-version" content="4.7.0-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -80,10 +80,12 @@ var LICENSE_CONFIG = {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="allocation/vendor/xlsx-js-style.min.js"></script>
 <script src="prep-days-vocab.js"></script>
 <script src="rules-engine.js"></script>
 <script src="rules-ui.js"></script>
 <script src="batching.js"></script>
+<script src="upgrades-47.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -919,7 +921,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.6.4</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.0</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1390,7 +1392,7 @@ let paxByDish = {}; // dish name -> number (pax count for that dish)
 let originalPageImages = {}; // dish name -> [{dataUrl, pageLabel}, ...] — main page first, then each sub-recipe's own page
 let methodCrops = {}; // dish name -> [{dataUrl, pageLabel}, ...] — just the cropped Method: region of each of those same pages
 let originalImagesTruncated = false; // true once a save had to drop images to fit storage
-let viewMode = 'dish'; // 'dish' | 'section' | 'priority'
+let viewMode = 'dish'; // 'dish' | 'section' | 'priority' | 'week' | 'order47' | 'recipes' | 'voice'
 
 // ---------- persistent recipe database ----------
 // Upload once to build this; from then on the tool opens straight into the weekly
@@ -1506,11 +1508,12 @@ function loadOnetimeSession(){
       paxByDish = cleanPaxMap(s.paxByDish);
       migratePdfBasePax(ROWS, paxByDish);
       activeFilter = typeof s.activeFilter==='string' ? s.activeFilter : 'all';
-      viewMode = ['dish','section','priority','order','orig'].includes(s.viewMode) ? s.viewMode : 'dish';
+      viewMode = ['dish','section','priority','order','order47','week','recipes','voice','orig'].includes(s.viewMode) ? s.viewMode : 'dish';
       eventDayOverride = isObj(s.eventDayOverride) ? s.eventDayOverride : {};
       eventDateByDish = isObj(s.eventDateByDish) ? s.eventDateByDish : {};
       rosteredChefs = isObj(s.rosteredChefs) ? s.rosteredChefs : {};
       if (isObj(s.batching) && window.PreplineBatch) try{ PreplineBatch.loadState(s.batching); }catch(e){}
+      try{ if (window.PreplineUpgrades47) PreplineUpgrades47.learnSectionsFromRows(ROWS); }catch(e){}
       sourceInfo = isObj(s.sourceInfo) ? s.sourceInfo : sourceInfo;
       originalPageImages = {};
       if (isObj(s.originalPageImages)){
@@ -1647,6 +1650,7 @@ function generateWeekly(){
   sourceInfo = {name: 'Recipe database — '+includedCount+' dish(es) selected this week', loadedAt: new Date()};
   viewMode = 'dish';
   setWeeklyStatus('Generated this week\'s preplist for '+includedCount+' dish(es).', 'ok');
+  try{ afterRowsLoaded47({name:'weekly'}); }catch(e){}
   renderApp();
 }
 
@@ -2658,6 +2662,12 @@ function addRows(dish, items){
     if (typeof it.section==='string') it.section = secLegacy(it.section.trim());
     const sectionOverride = (typeof it.section==='string' && SECTIONS.includes(it.section)) ? it.section : null;
     let cat = sectionOverride || categorize(it.item, dish);
+    if (!sectionOverride && window.PreplineUpgrades47) {
+      try {
+        const sug = PreplineUpgrades47.suggestSection(it.item, cat && cat!=='REVIEW' ? cat : '');
+        if (sug.source === 'learned' && sug.section && SECTIONS.includes(sug.section)) cat = sug.section;
+      } catch (e) {}
+    }
     if (cat === null) continue;
     let flagged = false;
     if (cat === 'REVIEW'){
@@ -4335,6 +4345,7 @@ document.getElementById('parsePasteBtn').addEventListener('click', ()=>{
   if (toolMode==='onetime'){
     sourceInfo = {name: 'Pasted rows (no file)', loadedAt: new Date()};
     setStatus('Sorted '+ROWS.length+' pasted rows.', 'ok');
+    try{ afterRowsLoaded47({name:'paste'}); }catch(e){}
     renderApp();
     return;
   }
@@ -5157,13 +5168,19 @@ function render(){
     <button class="${viewMode==='section'?'':'secondary'}" onclick="setView('section')" type="button">By team section</button>
     <button class="${viewMode==='priority'?'':'secondary'}" onclick="setView('priority')" type="button">By prep day</button>
     <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet (by supplier)</button>
+    <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week view</button>
+    <button class="${viewMode==='order47'?'':'secondary'}" onclick="setView('order47')" type="button" id="order47ViewBtn">Order (batched)</button>
+    <button class="${viewMode==='recipes'?'':'secondary'}" onclick="setView('recipes')" type="button" id="recipesViewBtn">Yield library</button>
+    <button class="${viewMode==='voice'?'':'secondary'}" onclick="setView('voice')" type="button" id="voiceViewBtn">Voice add</button>
     ${Object.keys(originalPageImages).length ? `<button class="${viewMode==='orig'?'':'secondary'}" onclick="setView('orig')" type="button" id="origViewBtn">📖 Original PTs (Ref # filled)</button>` : ''}
   </div>
-  <div class="row no-print" style="margin-bottom:10px; gap:8px;">
+  <div class="row no-print" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
     ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="Exports this view (By dish) as an editable .xlsx">📊 Export to Excel (editable)</button>`
       : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="Exports this view (By team section) as an editable .xlsx">📊 Export to Excel (editable)</button>`
-      : viewMode==='order' ? ''
+      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' ? ''
+      : viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports week as editable .xlsx">📊 Export to Excel (editable)</button>`
       : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports this view (By prep day) as an editable .xlsx">📊 Export to Excel (editable)</button>`}
+    <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Yellow header, fixed columns, freeze top row">📊 Organised export (yellow header)</button>
   </div>
   <div class="row no-print print-row" style="margin-bottom:20px; gap:8px; align-items:center;">
     <button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
@@ -5174,7 +5191,17 @@ function render(){
 
   if (viewMode!=='orig'){ html += searchBarHtml();
   html += printOrderControlHtml(); }   // v3.4.5: the Order sheet view has it too
-  html += viewMode==='dish' ? renderByDish() : (viewMode==='section' ? renderBySection() : (viewMode==='order' ? renderOrderSheet() : (viewMode==='orig' && Object.keys(originalPageImages).length ? renderOriginalsTab() : renderByPriority())));
+  if (window.PreplineUpgrades47) try{ PreplineUpgrades47.ensureCss(); }catch(e){}
+  const diffBanner = (window.PreplineUpgrades47 && PreplineUpgrades47.peekLastDiff) ? PreplineUpgrades47.changeCheckHtml(PreplineUpgrades47.peekLastDiff(), escapeHtml) : '';
+  if (diffBanner) html = diffBanner + html;
+  html += viewMode==='dish' ? renderByDish()
+    : viewMode==='section' ? renderBySection()
+    : viewMode==='order' ? renderOrderSheet()
+    : viewMode==='week' ? renderWeekView47()
+    : viewMode==='order47' ? renderOrder47()
+    : viewMode==='recipes' ? renderRecipes47()
+    : viewMode==='voice' ? renderVoice47()
+    : (viewMode==='orig' && Object.keys(originalPageImages).length ? renderOriginalsTab() : renderByPriority());
   // v3.4.4: re-rendering after a manual edit keeps the page where it was and keeps focus
   // on the control that was just changed (it used to jump back to the top).
   const keepY = window.scrollY, keepX = window.scrollX, ae = document.activeElement;
@@ -5184,6 +5211,7 @@ function render(){
   area.innerHTML = html;
   area.style.minHeight = '';
   try{ bindBatchingBar(); }catch(e){}
+  try{ bindUpgrades47(); }catch(e){}
   if (focusKey){ const el = [...area.querySelectorAll(focusKey.tag)].find(e=>e.getAttribute(focusKey.attr)===focusKey.val); if (el){ try{ el.focus({preventScroll:true}); }catch(e){} } }
   if (window.scrollY !== keepY || window.scrollX !== keepX) window.scrollTo(keepX, keepY);
   try{ numberDaysIn(document.getElementById('preplistTab') || document.body); }catch(e){}
@@ -6007,14 +6035,15 @@ function batchGroupRowHtml(g, opts){
   const isMerged = !!g.merged;
   const totalCell = g.hasTotal ? `<b>${qN(g.total,g.unit)}</b> ${escapeHtml(qU(g.total,g.unit))}` : '<span class="needpax">set pax</span>';
   const dishList = (g.dishes||[]).map(dh=>escapeHtml(cleanDishName(dh))).join(', ');
-  const reason = window.PreplineBatch ? PreplineBatch.batchReasonHtml(g, escapeHtml) : '';
+  const reason = window.PreplineBatch ? PreplineBatch.batchReasonHtml(g, escapeHtml, { cleanDishName }) : '';
   const unbatch = isMerged
     ? `<button class="ghost pb-unbatch" type="button" onclick="unbatchLine('${encodeURIComponent(g.batchKey)}')" title="Split this batch back into per-dish lines">unbatch</button>`
     : '';
+  const tick = (window.PreplineUpgrades47 && !opts.print) ? PreplineUpgrades47.tickControlsHtml(g, escapeHtml) : '';
   const flag = isMerged ? `<span class="flagtag" style="background:var(--veg1-bg);color:var(--veg1);">×${g.rows.length} dishes</span>` : '';
   if (opts.print){
     return `<tr class="${isMerged?'job-band-1':''}">
-      <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)}${g.merged?`<div class="pb-reason"><span class="pb-covers">${escapeHtml(g.covers||'')}</span> · ${escapeHtml(g.reason||'Merged')}</div>`:''}</td>
+      <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)}${reason}</td>
       <td class="dish">${dishList}</td>
       <td class="qty">${totalCell}</td>
       <td class="pf-section">${escapeHtml(g.section||'')}</td>
@@ -6023,7 +6052,7 @@ function batchGroupRowHtml(g, opts){
     </tr>`;
   }
   return `<tr class="${isMerged?'job-band-1':''}">
-    <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)} ${findSimilarBtn(g.taskLabel)}${unbatch}${reason}</td>
+    <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)} ${findSimilarBtn(g.taskLabel)}${unbatch}${reason}${tick}</td>
     <td class="dish">${dishList}</td>
     <td class="qty">${totalCell}</td>
     <td>${escapeHtml(g.section||'')}</td>
@@ -8069,6 +8098,7 @@ function outputChoiceHtml(src){
     </div></div>`;
 }
 function showOutputChoice(src){
+  try{ afterRowsLoaded47({name: src||'upload'}); }catch(e){}
   const host = document.getElementById('outputChoice'); if (!host) return;
   host.innerHTML = outputChoiceHtml(src); host.hidden = false;
 }
@@ -8356,6 +8386,100 @@ function pbWireDrop(){
 }
 
 // Bridge for sheet-builder / rules (let-scoped state is not on window)
+
+// ---- 4.7.0 upgrades (trial) ----
+function renderWeekView47(){
+  if (!window.PreplineUpgrades47) return '<div class="panel">Week view unavailable</div>';
+  const rows = viewRows();
+  const groups = window.PreplineBatch ? PreplineBatch.buildBatches(rows, batchDeps()) : [];
+  return PreplineUpgrades47.progressSummaryHtml(groups) +
+    PreplineUpgrades47.renderWeekView(rows, batchDeps(), { escapeHtml, qN, qU, cleanDishName });
+}
+function renderOrder47(){
+  if (!window.PreplineUpgrades47) return '';
+  return PreplineUpgrades47.renderOrderFromBatches(viewRows(), batchDeps(), {
+    escapeHtml, applyYield: (n,g)=>PreplineUpgrades47.applyYieldToQty(n, g)
+  });
+}
+function renderRecipes47(){
+  if (!window.PreplineUpgrades47) return '';
+  return PreplineUpgrades47.recipeLibHtml(escapeHtml);
+}
+function renderVoice47(){
+  if (!window.PreplineUpgrades47) return '';
+  return PreplineUpgrades47.voicePanelHtml();
+}
+function exportOrganisedXlsx47(){
+  if (!window.PreplineUpgrades47){ setStatus('Organised export unavailable', 'err'); return; }
+  try{
+    const staffBySection = {};
+    (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
+    const res = PreplineUpgrades47.exportOrganisedXlsx(viewRows(), batchDeps(), {
+      cleanDishName, staffBySection, defaultStaff: 'Unallocated'
+    });
+    setStatus('Organised export: '+res.rows+' rows, yellow header, frozen top row. Manual exports still available.', 'ok');
+  }catch(e){ setStatus('Organised export failed: '+(e&&e.message||e), 'err'); }
+}
+function bindUpgrades47(){
+  if (!window.PreplineUpgrades47) return;
+  const area = document.getElementById('resultsArea');
+  PreplineUpgrades47.bindTickControls(area, ()=>render());
+  PreplineUpgrades47.bindRecipeLib(document.getElementById('u47Recipes'), ()=>render());
+  PreplineUpgrades47.bindVoice(document.getElementById('u47Voice'), {
+    onAdd: (p)=>{
+      const dish = 'Voice add';
+      if (!paxByDish[dish]) paxByDish[dish] = 1;
+      if (p.day) eventDayOverride[dish] = p.day;
+      let section = '';
+      const sug = PreplineUpgrades47.suggestSection(p.task, '');
+      if (sug.section) section = sug.section;
+      else if (typeof categorize==='function'){ const c = categorize(p.task, dish); if (c && c!=='REVIEW') section = c; }
+      if (!section) section = 'Vegetables';
+      const pinf = typeof prepInfoFor==='function' ? prepInfoFor(p.task, null, section) : {};
+      let day = p.day || '';
+      let dayReason = '';
+      if (!day && eventDayOverride[dish]) {
+        const info = prepStartDayInfo(eventDayOverride[dish], { leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat, stageNum:1 });
+        day = info.day||''; dayReason = info.reason||'';
+      } else if (day && typeof prepStartDayInfo==='function') {
+        // day given is function day — convert to prep day
+        eventDayOverride[dish] = day;
+        const info = prepStartDayInfo(day, { leadDays: pinf.leadDays, weekendShift:!!pinf.weekendShift, prepCat:pinf.prepCat, stageNum:1 });
+        day = info.day || day; dayReason = info.reason||'';
+      }
+      ROWS.push({
+        dish, task: p.task, qty: p.qty||'', unit: p.unit||'', section, baseCategory: section,
+        flagged: false, day, dayReason, stageNum: 1, ...pinf, srcSheet: 'Voice'
+      });
+      try{ PreplineUpgrades47.learnSectionsFromRows(ROWS); }catch(e){}
+      render();
+      setStatus('Added voice line: '+p.task+(sug.section?' → '+sug.section:''), 'ok');
+    }
+  });
+  const csv = document.getElementById('u47OrderCsv');
+  if (csv) csv.addEventListener('click', ()=>{
+    const text = PreplineUpgrades47.orderCsv(viewRows(), batchDeps(), {
+      applyYield: (n,g)=>PreplineUpgrades47.applyYieldToQty(n,g)
+    });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'}));
+    a.download='Prepline_Order_Batched.csv'; a.click();
+  });
+  const pr = document.getElementById('u47OrderPrint');
+  if (pr) pr.addEventListener('click', ()=>window.print());
+}
+function afterRowsLoaded47(meta){
+  if (!window.PreplineUpgrades47) return;
+  try{
+    PreplineUpgrades47.learnSectionsFromRows(ROWS);
+    meta = meta || {};
+    if (meta.snapshot === false) return;
+    // Only snapshot when we have rows (upload/paste/weekly), not on every re-render.
+    if (!ROWS || !ROWS.length) return;
+    PreplineUpgrades47.rememberSnapshot(ROWS, meta);
+  }catch(e){}
+}
+
 window.__preplineBridge = {
   getRows: () => ROWS,
   setRows: (rows) => { ROWS = rows; },
@@ -8365,7 +8489,7 @@ window.__preplineBridge = {
   getPax: () => paxByDish,
   getDates: () => eventDateByDish,
   processWorkbook: (wb) => processWorkbook(wb),
-  render: () => { if (typeof renderApp==='function') renderApp(); else if (typeof render==='function') render(); },
+  render: () => { try{ afterRowsLoaded47({name:'bridge', snapshot:false}); }catch(e){} if (typeof renderApp==='function') renderApp(); else if (typeof render==='function') render(); },
   setStatus: (m, k) => { if (typeof setStatus==='function') setStatus(m, k); },
   showOutput: (k) => { if (typeof showOutputChoice==='function') showOutputChoice(k); },
   prepInfoFor: (text, leg, sec) => (typeof prepInfoFor==='function' ? prepInfoFor(text, leg, sec) : {prepCat:'', leadDays:null, prepSrc:'', weekendShift:false}),
