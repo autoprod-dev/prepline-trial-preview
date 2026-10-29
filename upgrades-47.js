@@ -28,6 +28,12 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
+  function wrapEsc(fn) {
+    return function (s) {
+      try { return (fn || esc)(String(s == null ? '' : s)); }
+      catch (e) { return esc(s); }
+    };
+  }
   function shortDay(d) { return SHORT[d] || (d ? String(d).slice(0, 3) : '—'); }
   function dayIdx(d) { return WEEKDAYS.indexOf(d); }
   function shiftBack(day, n) {
@@ -83,7 +89,7 @@
 
   function renderWeekView(rows, deps, helpers) {
     helpers = helpers || {};
-    var escH = helpers.escapeHtml || esc;
+    var escH = wrapEsc(helpers.escapeHtml);
     var qN = helpers.qN || function (n) { return String(n); };
     var qU = helpers.qU || function (n, u) { return u || ''; };
     var clean = helpers.cleanDishName || function (d) { return d; };
@@ -150,7 +156,7 @@
   function mergedSubtitleHtml(g, escH, opts) {
     opts = opts || {};
     if (!g || !g.merged) return '';
-    escH = escH || esc;
+    escH = wrapEsc(escH);
     var full = mergedSubtitleText(g, Object.assign({}, opts, { maxNames: 99 }));
     var short = mergedSubtitleText(g, Object.assign({}, opts, { maxNames: opts.phoneMax || 2 }));
     var days = g.covers ? ('<span class="pb-covers">' + escH(g.covers) + '</span> · ') : '';
@@ -178,7 +184,7 @@
     return st.lines[k];
   }
   function tickControlsHtml(g, escH) {
-    escH = escH || esc;
+    escH = wrapEsc(escH);
     var t = getTick(g);
     var k = encodeURIComponent(tickLineKey(g));
     var cls = 'u47-tick u47-tick-' + (t.status || 'todo');
@@ -322,7 +328,7 @@
     };
   }
   function changeCheckHtml(diff, escH) {
-    escH = escH || esc;
+    escH = wrapEsc(escH);
     if (!diff) return '';
     if (!diff.added.length && !diff.removed.length && !diff.changed.length) {
       return '<div class="panel u47-diff no-print" id="u47Diff"><b>Change check</b> — same as last upload (no line changes).</div>';
@@ -406,7 +412,7 @@
   }
   function renderOrderFromBatches(rows, deps, helpers) {
     helpers = helpers || {};
-    var escH = helpers.escapeHtml || esc;
+    var escH = wrapEsc(helpers.escapeHtml);
     var lines = buildOrderFromBatches(rows, deps, helpers);
     var html = '<div class="u47-order" id="u47Order"><div class="panel">' +
       '<div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
@@ -466,7 +472,7 @@
     return Math.round(n / (y.yieldPct / 100) * 1000) / 1000;
   }
   function recipeLibHtml(escH) {
-    escH = escH || esc;
+    escH = wrapEsc(escH);
     var lib = recipeLib();
     var html = '<div class="panel u47-recipes no-print" id="u47Recipes"><h3 style="margin:0 0 6px;">Recipe &amp; yield library</h3>' +
       '<div class="meta">Saved on this device. Yield % = usable weight ÷ raw weight × 100. Applied to order list totals (raw needed).</div>' +
@@ -587,7 +593,7 @@
   }
   function stationSheetHtml(sheets, opts) {
     opts = opts || {};
-    var escH = opts.escapeHtml || esc;
+    var escH = wrapEsc(opts.escapeHtml);
     var html = '<div class="u47-stations" id="u47Stations">';
     (sheets || []).forEach(function (s, idx) {
       html += '<section class="u47-station-sheet" data-chef="' + escH(s.chef) + '">' +
@@ -764,7 +770,7 @@
     return { section: best || fallback || '', source: best ? 'learned' : 'fallback', key: k, count: n };
   }
   function sectionBadgeHtml(suggestion, escH) {
-    escH = escH || esc;
+    escH = wrapEsc(escH);
     if (!suggestion || !suggestion.section) return '';
     var tip = suggestion.source === 'learned'
       ? ('Usually goes to ' + suggestion.section + ' (' + (suggestion.count || 0) + ' prior lines)')
