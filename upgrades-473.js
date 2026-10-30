@@ -1,4 +1,4 @@
-/* Prepline 4.7.3 — finish shallow 4.7.2 features (trial copy only). Builds on PreplineUpgrades47 + 472. */
+/* Prepline 4.7.4 — open access (no login/gate). Builds on 4.7.3 features (trial copy only). */
 (function (root) {
   'use strict';
   var U = root.PreplineUpgrades47;
@@ -639,7 +639,7 @@
   };
 
   // Expose
-  U.VERSION = '4.7.3';
+  U.VERSION = '4.7.4';
   U.todayWeekday = todayWeekday;
   U.morningBriefHtml = morningBriefHtml;
   U.dispatchTrackerHtml = dispatchTrackerHtml;
@@ -658,5 +658,5 @@
   U.dispatchMap = dispatchMap;
   U.saveDispatch = saveDispatch;
 
-  root.Prepline473 = { VERSION: '4.7.3' };
+  root.Prepline473 = { VERSION: '4.7.4' };
 })(typeof window !== 'undefined' ? window : globalThis);
