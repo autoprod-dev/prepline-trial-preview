@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+4.7.8 sort, +4.8.2 sample rules) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
+/* Prepline 4.7.7 (+4.7.8 sort, +4.8.2 sample rules, +4.8.7 Section=tab) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (blank write-in).
@@ -39,8 +39,19 @@
     return OTHER_SHEET;
   }
 
+  /* Canonical Section text for a Paula tab (Garnishes keeps the " Etc." Paula writes). */
+  function sectionForSheet(sheet) {
+    var s = String(sheet || '').trim();
+    for (var i = 0; i < PAULA_TABS.length; i++) {
+      if (PAULA_TABS[i].sheet === s) return PAULA_TABS[i].sections[0];
+    }
+    return s || '—';
+  }
+
   /* Paula places rows on tabs by what the item is, not only by the colour-legend Section.
-   * Section column stays as classified; sheet/tab follows these chef overrides.
+   * 4.8.7: Section column ALWAYS equals the tab the row is placed on (canonical label,
+   * including " Etc." on Garnishes). Colour/keyword classification still drives the
+   * fallback when no item-head heuristic matches; tab overrides then rewrite Section.
    * BAT/PO # is always blank (handwritten batch numbers) — never filled from upload.
    */
   function sheetForItem(item, sec) {
@@ -226,6 +237,9 @@
         : (r.dish || '');
       /* Dish key for A–Z: prefer Source tab (Paula's dish label), fall back to cleaned dish. */
       var dishKey = String(src || dishName || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      var sheet = sheetForItem(r.task, sec);
+      /* 4.8.7: Section text always matches the tab (overrides colour/keyword when heuristics move the row). */
+      var sectionOut = sheet === OTHER_SHEET ? (sec || '—') : sectionForSheet(sheet);
       out.push({
         item: r.task,
         qtyPerPax: pp.n,
@@ -234,16 +248,17 @@
         fixedTotal: pp.fixedTotal,
         nonNumeric: !!pp.nonNumeric,
         batPo: '', /* blank write-in for chefs — never filled from upload */
-        section: sec || '—',
+        section: sectionOut,
         prepDay: prepLab,
         sourceTab: src,
         staff: staffAllocated(r, helpers),
-        sheet: sheetForItem(r.task, sec),
+        sheet: sheet,
         itemNorm: String(r.task || '').toLowerCase().replace(/\s+/g, ' ').trim(),
         dish: r.dish || '',
         dishKey: dishKey,
         prepSort: prepDaySortKey(prepLab, r.day),
-        eventSort: eventDateSortKey(r.dish, src, helpers)
+        eventSort: eventDateSortKey(r.dish, src, helpers),
+        colourSection: sec || ''
       });
     });
     /* Gerard 30 Oct: auto A–Z on download — dish (Source tab), prep day chrono, event/function date chrono, item A–Z. */
@@ -278,6 +293,28 @@
     cell.border = thinBorder();
   }
 
+
+  /** Total needed cell: formula with cached result for Protected View.
+   *  Non-numeric or missing qty/pax → blank (never #VALUE). */
+  function totalNeededCell(r, excelRow) {
+    if (r.fixedTotal != null && r.fixedTotal !== '') return r.fixedTotal;
+    if (r.nonNumeric) return '';
+    var q = r.qtyPerPax;
+    var p = r.pax;
+    var qn = (typeof q === 'number') ? q : NaN;
+    var pn = (typeof p === 'number') ? p : NaN;
+    if (typeof q === 'string' && q.trim() !== '') {
+      qn = Number(String(q).replace(/,/g, ''));
+    }
+    if (typeof p === 'string' && p.trim() !== '') {
+      pn = Number(String(p).replace(/,/g, ''));
+    }
+    if (q === '' || p === '' || q == null || p == null) return '';
+    if (!isFinite(qn) || !isFinite(pn)) return '';
+    var product = qn * pn;
+    return { formula: 'B' + excelRow + '*D' + excelRow, result: product };
+  }
+
   function fillSheetExcelJS(ws, sheetTitle, rows) {
     ws.mergeCells(1, 1, 1, 10);
     var title = ws.getCell(1, 1);
@@ -304,24 +341,19 @@
       row.getCell(3).value = r.unit || '';
       if (typeof r.pax === 'number') row.getCell(4).value = r.pax;
       else row.getCell(4).value = r.pax === '' ? '' : r.pax;
-      if (r.fixedTotal != null && r.fixedTotal !== '') {
-        row.getCell(5).value = r.fixedTotal;
-      } else if (r.nonNumeric) {
-        row.getCell(5).value = { formula: 'IF(ISNUMBER(B' + excelRow + '),B' + excelRow + '*D' + excelRow + ',"")' };
-      } else if (r.qtyPerPax === '' || r.pax === '') {
-        row.getCell(5).value = { formula: 'IF(OR(B' + excelRow + '="",D' + excelRow + '=""),"",B' + excelRow + '*D' + excelRow + ')' };
-      } else {
-        row.getCell(5).value = { formula: 'B' + excelRow + '*D' + excelRow };
-      }
+      /* Total needed: formula + cached result so Protected View / LibreOffice / phones show a value. */
+      row.getCell(5).value = totalNeededCell(r, excelRow);
       row.getCell(6).value = r.batPo || '';
       row.getCell(7).value = r.section || '';
       row.getCell(8).value = r.prepDay || '';
       row.getCell(9).value = r.sourceTab || '';
       row.getCell(10).value = r.staff || '';
       for (var c = 1; c <= 10; c++) styleDataCell(row.getCell(c));
-      var h = 16.5;
-      if (String(r.item || '').length > 60) h = 32.25;
-      if (String(r.item || '').length > 100) h = 48.75;
+      var len = String(r.item || '').length;
+      var h = 18;
+      if (len > 45) h = 36;
+      if (len > 80) h = 54;
+      if (len > 120) h = 72;
       row.height = h;
     });
 
@@ -343,11 +375,12 @@
       var excelRow = idx + 3;
       var qty = r.qtyPerPax == null ? '' : r.qtyPerPax;
       var pax = r.pax === '' ? '' : r.pax;
+      var totCell = totalNeededCell(r, excelRow);
       var tot = '';
-      if (r.fixedTotal != null && r.fixedTotal !== '') {
-        tot = r.fixedTotal;
-      } else {
-        formulas.push({ r: excelRow - 1, c: 4, f: 'B' + excelRow + '*D' + excelRow });
+      if (totCell && typeof totCell === 'object' && totCell.formula) {
+        formulas.push({ r: excelRow - 1, c: 4, f: totCell.formula, v: totCell.result });
+      } else if (totCell !== '' && totCell != null) {
+        tot = totCell;
       }
       aoa.push([
         r.item, qty, r.unit || '', pax, tot,
@@ -358,7 +391,7 @@
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
     formulas.forEach(function (fc) {
       var addr = XLSX.utils.encode_cell({ r: fc.r, c: fc.c });
-      ws[addr] = { t: 'n', f: fc.f, v: 0 };
+      ws[addr] = { t: 'n', f: fc.f, v: (fc.v != null && isFinite(fc.v)) ? fc.v : 0 };
     });
     var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
     var boldH = { bold: true, name: 'Calibri', sz: 12 };
@@ -493,7 +526,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.7.7',
+    VERSION: '4.8.7',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS
