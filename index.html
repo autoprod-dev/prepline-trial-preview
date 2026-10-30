@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.5-trial">
+<meta name="prepline-version" content="4.7.6-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -88,6 +88,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-47.js"></script>
 <script src="upgrades-472.js"></script>
 <script src="upgrades-473.js"></script>
+<script src="upgrades-476.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -927,7 +928,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.5</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.6</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -4400,18 +4401,19 @@ function handleFile(file){
   }
   setStatus('Reading '+file.name+' — this can take a moment on a big workbook…');
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     try{
       const data = new Uint8Array(ev.target.result);
       const wbObj = XLSX.read(data, {type:'array', cellDates:false, sheetStubs:false, cellStyles:true});   // r7: cellStyles = cell fill colours (colour legend)
       const prev = {ROWS, paxByDish, eventDateByDish};   // restored if this file turns out unreadable
-      ROWS = []; paxByDish = {}; eventDateByDish = {}; originalPageImages = {}; methodCrops = {};  // a spreadsheet has no page image or method text to keep
+      ROWS = []; paxByDish = {}; eventDateByDish = {}; originalPageImages = {}; methodCrops = {};  // 4.7.6: plated-dish photos attached from xlsx when present
       const {sheetsUsed, itemsFound, skipped, errored} = processWorkbook(wbObj);
       if (itemsFound===0){
         ({ROWS, paxByDish, eventDateByDish} = prev);
         setStatus('Could not find any recipe rows in "'+file.name+'". Each dish needs a table with a column headed Item, Ingredient or Product (quantity and unit beside it), or a PAX cell above the list — or use the paste box. Your previous list has been kept.', 'err');
         return;
       }
+            try { if (typeof attachXlsxDishPhotos === 'function') await attachXlsxDishPhotos(data); } catch (e) { console.warn('xlsx dish photos', e); }
       document.getElementById('fileTag').textContent = file.name;
       const dishNames = [];
       ROWS.forEach(r=>{ const n=cleanDishName(r.dish); if(!dishNames.includes(n)) dishNames.push(n); });
@@ -8279,7 +8281,7 @@ let pbSorting = false;
 function asIsModelFromRows(){
   // from an uploaded sheet: the rows as read, colour from each row's group
   const dishes = [];
-  (typeof ROWS!=='undefined'?ROWS:[]).forEach(r=>{ let d = dishes.find(x=>x.name===r.dish); if (!d){ d = {name:r.dish, pax:(typeof paxByDish!=='undefined' && paxByDish[r.dish]!=null)?paxByDish[r.dish]:'', rows:[]}; dishes.push(d); }
+  (typeof ROWS!=='undefined'?ROWS:[]).forEach(r=>{ let d = dishes.find(x=>x.name===r.dish); if (!d){ d = {name:r.dish, pax:(typeof paxByDish!=='undefined' && paxByDish[r.dish]!=null)?paxByDish[r.dish]:'', srcSheet:r.srcSheet||'', rows:[]}; dishes.push(d); }
     const c = pbCatForSection(r.section); d.rows.push({item:r.task, qty:r.qty, unit:r.unit||'', cat:c?c.k:'', section:r.section||'', day:r.day||'', ref:''}); });
   return dishes;
 }
@@ -8295,7 +8297,7 @@ body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0}.asis-page{page-
 .asis-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #111;margin-bottom:8px}.asis-head h1{font-size:22px;margin:0 0 4px}.asis-pax{font-size:16px}
 table.asis{width:100%;border-collapse:collapse;font-size:13px}table.asis th{background:#333;color:#fff;text-align:left;padding:6px}table.asis td{border:1px solid #bbb;padding:6px;height:22px}
 table.asis .mk{width:14px;padding:0}table.asis .n{text-align:right}table.asis .ref{min-width:110px}
-.asis-legend{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}.lg{padding:4px 10px;border:1px solid #888;font-weight:700;font-size:12px}.asis-foot{margin-top:8px;font-size:10px;color:#666}`;
+.asis-legend{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}.lg{padding:4px 10px;border:1px solid #888;font-weight:700;font-size:12px}.asis-foot{margin-top:8px;font-size:10px;color:#666}.asis-body{display:flex;gap:14px;align-items:flex-start}.asis-table-wrap{flex:1;min-width:0}.asis-photo{flex:0 0 240px;max-width:34%;text-align:center}.asis-photo img{width:100%;max-height:320px;height:auto;object-fit:contain;border:1px solid #bbb;background:#fafafa}.asis-photo .ph-lbl{font-size:10px;color:#666;margin-top:4px}`;
 function printAsIs(src){
   const dishes = src==='builder' ? pbValid() : asIsModelFromRows();
   if (!dishes.length) return;
