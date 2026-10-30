@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.8-trial">
+<meta name="prepline-version" content="4.7.9-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -91,6 +91,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-476.js"></script>
 <script src="upgrades-477.js"></script>
 <script src="upgrades-478.js"></script>
+<script src="upgrades-479.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -930,7 +931,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.8</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.9</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1308,6 +1309,7 @@ function renderOriginalsTab(){
     <div class="row no-print" style="justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
       <h3 style="margin:0;">📖 Original production tools</h3>
       <button class="ghost" type="button" onclick="printOriginalsAll()">🖨️ Print the original pages</button>
+      <button class="ghost" type="button" onclick="(window.exportOriginalXlsx479||window.exportAsIsXlsxWithPhotos||function(){})('upload')" title="One tab per dish with photos embedded when present">📊 Download original .xlsx (with photos)</button>
     </div>
     <div class="meta no-print">${n} page(s) as uploaded. ${POS.length ? `The <b>Ref #</b> box shows the supplier and delivery date from the uploaded requisition(s) for <b>${filled}</b> ingredient(s) whose delivery is within 4 days before the function; ingredients with no match, delivery outside that window, or sub-recipes stay blank.` : 'Upload the requisition sheet(s) with the production tools to fill the Ref # boxes.'}</div>
     ${dishes.map(d=>originalPageImages[d].map((e,i)=>`<div class="orig-page"><div class="orig-head no-print"><b>${escapeHtml(cleanDishName(d))}</b> <span class="meta">${escapeHtml(e.pageLabel||'')}</span> <button class="ghost" type="button" onclick="openOriginalViewer('${encodeURIComponent(d).replace(/'/g,'%27')}')">📖 View original</button></div><img class="orig-img" data-od="${escapeHtml(encodeURIComponent(d))}" data-oi="${i}" src="${e.dataUrl}" alt="${escapeHtml(cleanDishName(d))}"></div>`).join('')).join('')}
@@ -4356,7 +4358,7 @@ document.getElementById('fileInput').addEventListener('change', e=>{
 // 4.4.3: parse an in-memory workbook that already carries cellStyles (.s fills).
 // Used by the sheet-builder so Sort now / edited grids never round-trip through a
 // community SheetJS write that strips fills.
-function handleWorkbookObject(wbObj, fileName){
+function handleWorkbookObject(wbObj, fileName, rawBytes){
   if (!wbObj) return;
   try{
     const name = fileName || 'edited.xlsx';
@@ -4372,24 +4374,33 @@ function handleWorkbookObject(wbObj, fileName){
     document.getElementById('fileTag').textContent = name;
     const dishNames = [];
     ROWS.forEach(r=>{ const n=cleanDishName(r.dish); if(!dishNames.includes(n)) dishNames.push(n); });
-    if (toolMode==='onetime'){
-      sourceInfo = {name: name, loadedAt: new Date()};
-      let msg = 'Sorted '+itemsFound+' tasks into '+dishNames.length+' dishes: '+dishNames.join(', ')+'.';
-      if (lastColourSort) msg += ' Colour legend'+(lastColourSort.usedDefault?' (defaults)':'')+' ('+lastColourSort.found.map(f=>f.label+' = '+(f.cat==='Garnishes, Herbs, Powders, Oils Etc.'?'Garnish':f.cat)).join(', ')+'): '+lastColourSort.jobs+' job(s) sorted by colour, the rest by name.';
+    const finishWorkbookLoad = ()=>{
+      if (toolMode==='onetime'){
+        sourceInfo = {name: name, loadedAt: new Date()};
+        let msg = 'Sorted '+itemsFound+' tasks into '+dishNames.length+' dishes: '+dishNames.join(', ')+'.';
+        if (lastColourSort) msg += ' Colour legend'+(lastColourSort.usedDefault?' (defaults)':'')+' ('+lastColourSort.found.map(f=>f.label+' = '+(f.cat==='Garnishes, Herbs, Powders, Oils Etc.'?'Garnish':f.cat)).join(', ')+'): '+lastColourSort.jobs+' job(s) sorted by colour, the rest by name.';
+        if (skipped.length) msg += ' No rows found on: '+skipped.join(', ')+' — check those tabs have an "Item" or "PAX" cell.';
+        if (errored.length) msg += ' Failed to read: '+errored.join(', ')+'.';
+        setStatus(msg, errored.length ? 'err' : 'ok');
+        renderApp();
+        if (typeof showOutputChoice==='function'){ if (pbSorting){ pbSorting = false; const oc=document.getElementById('outputChoice'); if (oc){ oc.hidden = true; oc.innerHTML=''; } const v=document.getElementById('preplistTab'); if (v) v.scrollIntoView(); } else showOutputChoice('upload'); }
+        return;
+      }
+      const added = commitRowsToDatabase();
+      let msg = 'Added '+added+' dishes to your recipe database ('+itemsFound+' tasks): '+dishNames.join(', ')+'.';
       if (skipped.length) msg += ' No rows found on: '+skipped.join(', ')+' — check those tabs have an "Item" or "PAX" cell.';
       if (errored.length) msg += ' Failed to read: '+errored.join(', ')+'.';
       setStatus(msg, errored.length ? 'err' : 'ok');
+      appMode = 'weekly';
       renderApp();
-      if (typeof showOutputChoice==='function'){ if (pbSorting){ pbSorting = false; const oc=document.getElementById('outputChoice'); if (oc){ oc.hidden = true; oc.innerHTML=''; } const v=document.getElementById('preplistTab'); if (v) v.scrollIntoView(); } else showOutputChoice('upload'); }
+    };
+    // 4.7.9: attach plated-dish photos on Sort-now / sheet-builder path (handleFile already did this).
+    if (rawBytes && typeof attachXlsxDishPhotos === 'function'){
+      const u8 = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes);
+      Promise.resolve(attachXlsxDishPhotos(u8)).catch(e=>console.warn('xlsx dish photos', e)).then(finishWorkbookLoad);
       return;
     }
-    const added = commitRowsToDatabase();
-    let msg = 'Added '+added+' dishes to your recipe database ('+itemsFound+' tasks): '+dishNames.join(', ')+'.';
-    if (skipped.length) msg += ' No rows found on: '+skipped.join(', ')+' — check those tabs have an "Item" or "PAX" cell.';
-    if (errored.length) msg += ' Failed to read: '+errored.join(', ')+'.';
-    setStatus(msg, errored.length ? 'err' : 'ok');
-    appMode = 'weekly';
-    renderApp();
+    finishWorkbookLoad();
   } catch(err){
     setStatus('Could not read that file ('+(err && err.message ? err.message : 'unknown error')+'). Please upload an .xlsx, .xls or .csv spreadsheet, or a production tool PDF.', 'err');
   }

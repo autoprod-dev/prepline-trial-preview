@@ -395,8 +395,9 @@
     // Prefer style-preserving in-memory path
     if (typeof root.handleWorkbookObject === 'function' && typeof XLSX !== 'undefined') {
       try {
-        var wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: false, sheetStubs: false, cellStyles: true });
-        root.handleWorkbookObject(wb, name || 'edited.xlsx');
+        var u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+        var wb = XLSX.read(u8, { type: 'array', cellDates: false, sheetStubs: false, cellStyles: true });
+        root.handleWorkbookObject(wb, name || 'edited.xlsx', u8);
         return;
       } catch (e1) { /* fall through */ }
     }
