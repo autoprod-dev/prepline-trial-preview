@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.6-trial">
+<meta name="prepline-version" content="4.7.7-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -89,6 +89,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-472.js"></script>
 <script src="upgrades-473.js"></script>
 <script src="upgrades-476.js"></script>
+<script src="upgrades-477.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -928,7 +929,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.6</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.7</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5321,7 +5322,7 @@ function render(){
       : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' ? ''
       : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx">📊 Export to Excel</button>`}
     ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
-    <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Yellow header, fixed columns, freeze top row">📊 Organised export (yellow header)</button>
+    <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Paula Sorted layout: one tab per section, yellow header, Total needed = qty × pax">📊 Organised export (yellow header)</button>
     <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
     <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>
     <button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
@@ -8647,9 +8648,13 @@ function exportOrganisedXlsx47(){
     const staffBySection = {};
     (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
     const res = PreplineUpgrades47.exportOrganisedXlsx(viewRows(), batchDeps(), {
-      cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish
+      cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish,
+      allergenText: typeof allergenText==='function' ? allergenText : undefined,
+      dayLabel: typeof dayLabel==='function' ? dayLabel : undefined,
+      srcName: typeof srcName==='function' ? srcName : undefined,
+      exportPerPax: typeof exportPerPax==='function' ? exportPerPax : undefined
     });
-    const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows, yellow header, frozen top row ('+(r&&r.engine||'xlsx')+'). Manual exports still available.', 'ok');
+    const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows · Paula layout (section tabs, yellow header'+(r&&r.layout? ', '+r.layout : '')+') · '+(r&&r.engine||'xlsx')+'.', 'ok');
     if (res && typeof res.then === 'function') res.then(done).catch(e=>setStatus('Organised export failed: '+(e&&e.message||e), 'err'));
     else done(res);
   }catch(e){ setStatus('Organised export failed: '+(e&&e.message||e), 'err'); }
