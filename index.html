@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.9-trial">
+<meta name="prepline-version" content="4.8.0-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -92,6 +92,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-477.js"></script>
 <script src="upgrades-478.js"></script>
 <script src="upgrades-479.js"></script>
+<script src="upgrades-480.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -931,7 +932,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.9</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.0</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5313,22 +5314,14 @@ function render(){
   maybeSurveyPrompt();
   let html = versionSwitchHtml() + sampleBannerHtml() + pdfCookedBannerHtml(ROWS) + renderMasterSummary() + poPanelHtml() + yieldPanelHtml() + blockedDaysPanelHtml() + costSummaryHtml();
 
-  html += `<div class="u47-plan-toggle no-print" id="u47PlanToggle" role="tablist" aria-label="Planning view">
-    <button type="button" class="u47-plan-btn ${viewMode==='dish'?'on':''}" onclick="setView('dish')">By dish</button>
-    <button type="button" class="u47-plan-btn ${viewMode==='priority'?'on':''}" onclick="setView('priority')">By day</button>
-    <button type="button" class="u47-plan-btn ${viewMode==='section'?'on':''}" onclick="setView('section')">By section</button>
-  </div>
-  <div class="viewtoggle no-print" style="margin-top:8px;">
-    <button class="${viewMode==='item'?'':'secondary'}" onclick="setView('item')" type="button" id="itemViewBtn">By item</button>
+  const u480MoreViews = `<button class="${viewMode==='item'?'':'secondary'}" onclick="setView('item')" type="button" id="itemViewBtn">By item</button>
     <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week calendar</button>
     <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet</button>
     <button class="${viewMode==='order47'?'':'secondary'}" onclick="setView('order47')" type="button" id="order47ViewBtn">Order (batched)</button>
     <button class="${viewMode==='recipes'?'':'secondary'}" onclick="setView('recipes')" type="button" id="recipesViewBtn">Yield library</button>
     <button class="${viewMode==='voice'?'':'secondary'}" onclick="setView('voice')" type="button" id="voiceViewBtn">Voice add</button>
-    ${Object.keys(originalPageImages).length ? `<button class="${viewMode==='orig'?'':'secondary'}" onclick="setView('orig')" type="button" id="origViewBtn">📖 Original PTs</button>` : ''}
-  </div>
-  <div class="row no-print" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
-    ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="By dish Excel">📊 Excel · By dish</button>`
+    ${Object.keys(originalPageImages).length ? `<button class="${viewMode==='orig'?'':'secondary'}" onclick="setView('orig')" type="button" id="origViewBtn">📖 Original PTs</button>` : ''}`;
+  const u480ExportBtns = `${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="By dish Excel">📊 Excel · By dish</button>`
       : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="By section Excel">📊 Excel · By section</button>`
       : viewMode==='priority' || viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="By day Excel">📊 Excel · By day</button>`
       : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' ? ''
@@ -5336,17 +5329,23 @@ function render(){
     ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Paula Sorted layout: one tab per section, yellow header, Total needed = qty × pax">📊 Organised export (yellow header)</button>
     <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
-    <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>
-    <button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
+    <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>`;
+  const u480PrintBtns = `<button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
+    <button class="secondary" onclick="printAllDays()" type="button">🖨️ Print all prep days (one page complete)</button>
+    ${printMethodToggleHtml()}`;
+  const u480TeamBtns = `<button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
     <button class="secondary" onclick="setView('dispatch47')" type="button" id="dispatch47ViewBtn">Dispatch</button>
     <button class="secondary" onclick="setView('brief47')" type="button" id="brief47ViewBtn">Morning brief</button>
-    <button class="secondary" onclick="setView('swap47')" type="button" id="swap47ViewBtn">Swap</button>
+    <button class="secondary" onclick="setView('swap47')" type="button" id="swap47ViewBtn">Swap</button>`;
+  const u480Grouped = (window.Prepline480 && Prepline480.groupsHtml)
+    ? Prepline480.groupsHtml({ moreViews: u480MoreViews, exportBtns: u480ExportBtns, printBtns: u480PrintBtns, teamBtns: u480TeamBtns })
+    : `<div class="viewtoggle no-print" style="margin-top:8px;">${u480MoreViews}</div><div class="row no-print" style="margin-bottom:10px;gap:8px;flex-wrap:wrap;">${u480ExportBtns}${u480TeamBtns}</div><div class="row no-print print-row" style="margin-bottom:20px;gap:8px;align-items:center;">${u480PrintBtns}</div>`;
+  html += `<div class="u47-plan-toggle no-print" id="u47PlanToggle" role="tablist" aria-label="Planning view">
+    <button type="button" class="u47-plan-btn ${viewMode==='dish'?'on':''}" onclick="setView('dish')">By dish</button>
+    <button type="button" class="u47-plan-btn ${viewMode==='priority'?'on':''}" onclick="setView('priority')">By day</button>
+    <button type="button" class="u47-plan-btn ${viewMode==='section'?'on':''}" onclick="setView('section')">By section</button>
   </div>
-  <div class="row no-print print-row" style="margin-bottom:20px; gap:8px; align-items:center;">
-    <button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
-    <button class="secondary" onclick="printAllDays()" type="button">🖨️ Print all prep days (one page complete)</button>
-    ${printMethodToggleHtml()}
-  </div>
+  ${u480Grouped}
   ${!includeMethodInPrint && Object.keys(methodCrops).length ? '<div class="no-print pmt-note">Printouts leave out the Method screen captures. 📖 View original still shows them on screen.</div>' : ''}`;
 
   if (viewMode!=='orig' && viewMode!=='recipes' && viewMode!=='voice'){ html += searchBarHtml();
