@@ -24,7 +24,8 @@
 
   // 4-day proteins share window 4; fish stays 1 (no cross-day merge beyond that).
   var DEFAULT_BATCH_WINDOW = {
-    poultry: 4, redmeat: 4, seafood: 1, veg: 4, dry: 4, oil: 4,
+    /* proteins 4, perishables(veg/garnish) 2, fish 1, dry/oils 4, crab croq 4, gels/starch 3, default 3 */
+    poultry: 4, redmeat: 4, seafood: 1, veg: 2, dry: 4, oil: 4,
     gels: 3, dressing: 4, dairy: 4, starch: 3, crabcroq: 4,
     garnish: 2, micro: 1
   };
@@ -67,7 +68,7 @@
     } catch (e) {}
     var L = Number(lead);
     if (Number.isFinite(L) && L > 0) return L;
-    return 4;
+    return 3; /* default window */
   }
 
   /**
@@ -136,45 +137,292 @@
   }
 
   function normText(s) {
-    return String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9\s/]/g, ' ').replace(/\s+/g, ' ').trim();
+    return String(s || '').toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9\s/+\-.]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
   }
 
+  /* Primary cooking methods — order = preference when several verbs appear in a pipeline */
   var METHOD_VERBS = [
+    'sous vide', 'deep fry', 'pat dry',
     'trim', 'wash', 'blanch', 'steam', 'roast', 'grill', 'sear', 'dice', 'slice', 'peel',
     'julienne', 'brunoise', 'chiffonade', 'portion', 'crumb', 'bread', 'marinate', 'brine',
-    'confit', 'braise', 'poach', 'fry', 'deep fry', 'sous vide', 'puree', 'reduce', 'glaze',
+    'confit', 'braise', 'poach', 'fry', 'puree', 'reduce', 'glaze',
     'pickle', 'pick', 'chop', 'mince', 'grate', 'zest', 'segment', 'debone', 'butterfly',
     'tie', 'roll', 'press', 'chill', 'freeze', 'thaw', 'defrost', 'strain', 'whisk', 'blend',
     'emulsify', 'infuse', 'render', 'clarify', 'skim', 'toast', 'char', 'smoke', 'cure',
-    'ferment', 'proof', 'bake', 'cook', 'make', 'prep', 'collect', 'weigh', 'drain', 'pat dry'
+    'ferment', 'proof', 'bake', 'cook', 'make', 'prep', 'collect', 'weigh', 'drain',
+    'assemble', 'mold', 'mould', 'bag', 'tray', 'rub', 'oven', 'pull', 'mix', 'set', 'boil'
   ];
+  var METHOD_ALIASES = {
+    sv: 'sous vide', 'sous-vide': 'sous vide', sousvide: 'sous vide',
+    puree: 'puree', 'purée': 'puree', pureed: 'puree', 'puréed': 'puree',
+    mould: 'mold', saut: 'saute', saute: 'saute', 'sauté': 'saute'
+  };
+  /* Synonyms / abbrev → canonical ingredient tokens (applied before sort) */
+  var NAME_SYNONYMS = {
+    'dutch carrot': 'carrot', 'dutch carrots': 'carrot', 'baby carrot': 'carrot', 'baby carrots': 'carrot',
+    'aubergine': 'eggplant', 'capsicum': 'pepper', 'capsicums': 'pepper', 'bell pepper': 'pepper',
+    'shallot': 'eschalot', 'shallots': 'eschalot', 'spring onion': 'scallion', 'green onion': 'scallion',
+    'courgette': 'zucchini', 'bok choy': 'bokchoy', 'pak choy': 'bokchoy',
+    'microherb': 'micro herb', 'microherbs': 'micro herb', 'micro herbs': 'micro herb', 'micros': 'micro herb',
+    'puree': 'puree', 'purée': 'puree', 'purees': 'puree', 'purées': 'puree',
+    'wagyu': 'beef', 'eye fillet': 'beef', 'scotch fillet': 'beef', 't-bone': 'beef',
+    'barra': 'barramundi', 'king salmon': 'salmon', 'ocean trout': 'trout',
+    'bannockburn': 'chicken', 'spatch': 'spatchcock'
+  };
+  /* Base produce for shared mise (strip colour/size/diet tags) */
+  var BASE_INGREDIENTS = [
+    'carrot','potato','onion','leek','celery','celeriac','fennel','beetroot','pumpkin','zucchini',
+    'eggplant','mushroom','cauliflower','broccoli','asparagus','pea','bean','kale','spinach',
+    'cabbage','tomato','cucumber','radish','corn','garlic','lettuce','artichoke','parsnip',
+    'turnip','chicken','duck','beef','lamb','pork','salmon','prawn','scallop','barramundi',
+    'cod','trout','warrigal','karkalla','samphire','apple','orange','lemon','lime','yuzu'
+  ];
+  var MISE_HINTS = {
+    carrot: 'Peel / trim carrots once for all carrot lines',
+    potato: 'Peel / cook potatoes once where windows allow',
+    onion: 'Peel / dice onions as shared mise',
+    garlic: 'Peel garlic once for oils, purees and proteins',
+    chicken: 'Break / portion chicken once for shared uses',
+    duck: 'Break / portion duck once for shared uses',
+    lemon: 'Zest / juice lemons once for shared uses',
+    asparagus: 'Trim asparagus once for all asparagus lines',
+    pea: 'Pod / blanch peas once where windows allow',
+    mushroom: 'Clean mushrooms once for ragu / soil / garnish'
+  };
+
+  function stripTrailingQty(s) {
+    return String(s || '')
+      .replace(/\b\d+([.,]\d+)?\s*(kg|g|gm|gms|grams?|kgs?|kilos?|ml|l|lt|ltr|litres?|each|ea|pcs?|pieces?|portions?)\b/gi, ' ')
+      .replace(/\b\d+([.,]\d+)?\b/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function singularToken(w) {
+    if (w.length <= 3) return w;
+    if (/ies$/.test(w) && w.length > 4) return w.replace(/ies$/, 'y');
+    if (/(ches|shes|xes|zes|sses)$/.test(w)) return w.replace(/es$/, '');
+    if (/s$/.test(w) && !/ss$/.test(w) && !/us$/.test(w) && !/is$/.test(w)) return w.replace(/s$/, '');
+    return w;
+  }
+  function applyNameSynonyms(s) {
+    var out = ' ' + String(s || '').toLowerCase() + ' ';
+    out = out.replace(/[ée]/g, function (m) { return m === 'é' ? 'e' : m; });
+    Object.keys(NAME_SYNONYMS).sort(function (a, b) { return b.length - a.length; }).forEach(function (k) {
+      var re = new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '\\b', 'gi');
+      out = out.replace(re, ' ' + NAME_SYNONYMS[k] + ' ');
+    });
+    return out.replace(/\s+/g, ' ').trim();
+  }
+  function canonicalName(name) {
+    var n = applyNameSynonyms(name);
+    var toks = String(n || '').toLowerCase().split(/\s+/).filter(Boolean)
+      .map(singularToken)
+      .filter(function (w) {
+        return w && w !== 'and' && w !== 'with' && w !== 'of' && w !== 'the' && w !== 'a' && w !== 'an'
+          && w !== 'orange' && w !== 'yellow' && w !== 'red' && w !== 'green' && w !== 'baby' && w !== 'dutch'
+          && w !== 'df' && w !== 'gf' && w !== 'vg' && w !== 'vegan' && w !== 'halal';
+      });
+    toks.sort();
+    return toks.join(' ');
+  }
+  function baseIngredientOf(name) {
+    var n = applyNameSynonyms(name);
+    var toks = String(n || '').toLowerCase().split(/\s+/).map(singularToken);
+    if (toks.length && (toks[toks.length-1] === 'oil' || toks[toks.length-1] === 'oils')) return '';
+    for (var i = 0; i < BASE_INGREDIENTS.length; i++) {
+      if (toks.indexOf(BASE_INGREDIENTS[i]) >= 0) return BASE_INGREDIENTS[i];
+    }
+    return toks.filter(function (w) {
+      return w && w.length > 2 && METHOD_VERBS.indexOf(w) < 0
+        && w !== 'green' && w !== 'oil' && w !== 'sauce' && w !== 'gel' && w !== 'puree';
+    })[0] || '';
+  }
+  function resolveMethod(m) {
+    m = String(m || '').toLowerCase().trim();
+    if (METHOD_ALIASES[m]) return METHOD_ALIASES[m];
+    return m;
+  }
+  function isMethodToken(s) {
+    var m = resolveMethod(String(s || '').toLowerCase().trim());
+    if (!m) return false;
+    if (METHOD_ALIASES[m] || METHOD_VERBS.indexOf(m) >= 0) return true;
+    // multi-word segment that starts with a verb
+    for (var i = 0; i < METHOD_VERBS.length; i++) {
+      var v = METHOD_VERBS[i];
+      if (m === v || m.indexOf(v + ' ') === 0 || m.indexOf(v + '(') === 0) return true;
+    }
+    return false;
+  }
+  function primaryMethod(steps) {
+    // Prefer distinctive cook methods over wash/trim/tray logistics
+    var rank = {
+      'sous vide': 100, puree: 95, confit: 90, smoke: 88, cure: 86, brine: 84, roast: 80,
+      braise: 78, grill: 76, sear: 74, fry: 72, 'deep fry': 72, poach: 70, steam: 68,
+      blanch: 65, bake: 64, reduce: 62, glaze: 60, pickle: 58, blend: 55, marinate: 54,
+      portion: 40, dice: 38, slice: 38, peel: 36, trim: 30, wash: 20, bag: 10, tray: 8, cook: 50, make: 45, prep: 5
+    };
+    var best = '', bestScore = -1;
+    (steps || []).forEach(function (s) {
+      var m = resolveMethod(s);
+      // take first verb in the segment
+      for (var i = 0; i < METHOD_VERBS.length; i++) {
+        var v = METHOD_VERBS[i];
+        if (m === v || m.indexOf(v + ' ') === 0 || new RegExp('^' + v.replace(/ /g, '\\s+') + '\\b').test(m)) {
+          var sc = rank[v] != null ? rank[v] : 15;
+          if (sc > bestScore) { bestScore = sc; best = v; }
+          break;
+        }
+      }
+    });
+    return best || 'prep';
+  }
+  /* Levenshtein for short typo tolerance (threshold 1 for len>=5, 2 for len>=8) */
+  function editDist(a, b) {
+    a = String(a || ''); b = String(b || '');
+    if (a === b) return 0;
+    if (!a.length) return b.length; if (!b.length) return a.length;
+    var i, j, prev = [], cur = [];
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      cur[0] = i;
+      for (j = 1; j <= b.length; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      }
+      prev = cur.slice();
+    }
+    return prev[b.length];
+  }
+  function fuzzyMatchToken(tok, lexicon) {
+    tok = singularToken(String(tok || '').toLowerCase());
+    if (!tok || tok.length < 4) return null;
+    var best = null, bd = 99;
+    for (var i = 0; i < lexicon.length; i++) {
+      var w = lexicon[i];
+      if (w === tok) return w;
+      if (Math.abs(w.length - tok.length) > 2) continue;
+      var d = editDist(tok, w);
+      var allow = tok.length >= 8 ? 2 : 1;
+      if (d <= allow && d < bd) { bd = d; best = w; }
+    }
+    return best;
+  }
+  function fuzzyCanonName(name, lexicon) {
+    var toks = String(name || '').toLowerCase().split(/\s+/).filter(Boolean);
+    var out = toks.map(function (t) {
+      var f = fuzzyMatchToken(t, lexicon);
+      return f || singularToken(t);
+    });
+    out.sort();
+    return out.join(' ');
+  }
 
   function parseTaskParts(task) {
     var raw = String(task || '').trim();
-    var t = normText(raw);
-    var method = '', name = t;
-    var slash = t.split(/\s*\/\s*/);
+    raw = raw.replace(/[àáâãäå]/gi,'a').replace(/[èéêë]/gi,'e').replace(/[ìíîï]/gi,'i')
+      .replace(/[òóôõö]/gi,'o').replace(/[ùúûü]/gi,'u').replace(/[ýÿ]/gi,'y').replace(/ñ/gi,'n').replace(/ç/gi,'c');
+    var t = stripTrailingQty(normText(raw));
+    t = t.replace(/[ée]/g, function (m) { return m === 'é' ? 'e' : m; });
+    var method = '', name = t, steps = [];
+    var svHit = t.match(/(?:^|\s|\/)(sv|sous[\s-]?vide)(?:\s|$|\/)/i);
+    if (svHit) {
+      method = 'sous vide';
+      name = t.replace(/(?:^|\s|\/)(sv|sous[\s-]?vide)(?:\s|$|\/)/gi, ' ')
+        .replace(/\s*\/\s*/g, ' / ').replace(/^\s*\/\s*|\s*\/\s*$/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    var slash = name.split(/\s*\/\s*/).map(function (s) { return s.trim(); }).filter(Boolean);
     if (slash.length >= 2) {
-      var a = slash[0], b = slash.slice(1).join(' ');
-      if (METHOD_VERBS.indexOf(a) >= 0) { method = a; name = b; }
-      else if (METHOD_VERBS.indexOf(b) >= 0) { method = b; name = a; }
-      else { method = b; name = a; }
-    } else {
+      // Name = first non-method segment; remaining method-like segments = pipeline
+      var nameParts = [], stepParts = [];
+      slash.forEach(function (seg, idx) {
+        var clean = stripTrailingQty(seg.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim());
+        if (!clean) return;
+        if (idx === 0 && !isMethodToken(clean.split(/\s+/)[0])) {
+          nameParts.push(clean);
+        } else if (isMethodToken(clean) || isMethodToken(clean.split(/\s+/)[0])) {
+          stepParts.push(resolveMethod(clean.split(/\s+/)[0]) === clean.split(/\s+/)[0]
+            ? resolveMethod(clean.split(/\s+/).slice(0, 2).join(' ')) && METHOD_VERBS.indexOf(resolveMethod(clean.split(/\s+/).slice(0, 2).join(' '))) >= 0
+              ? resolveMethod(clean.split(/\s+/).slice(0, 2).join(' '))
+              : resolveMethod(clean.split(/\s+/)[0])
+            : clean);
+          // store fuller step text for pipeline
+          steps.push(clean.toLowerCase());
+        } else if (!nameParts.length) {
+          nameParts.push(clean);
+        } else {
+          steps.push(clean.toLowerCase());
+          stepParts.push(clean.toLowerCase());
+        }
+      });
+      name = nameParts.join(' ') || slash[0];
+      if (!method) method = primaryMethod(steps.length ? steps : stepParts);
+    } else if (!method) {
       for (var i = 0; i < METHOD_VERBS.length; i++) {
         var v = METHOD_VERBS[i];
         var re = new RegExp('^' + v.replace(/ /g, '\\s+') + '\\b\\s*(?:of\\s+|the\\s+)?');
-        if (re.test(t)) { method = v; name = t.replace(re, '').trim(); break; }
+        if (re.test(name)) { method = v; name = name.replace(re, '').trim(); steps = [v]; break; }
         var re2 = new RegExp('\\b' + v.replace(/ /g, '\\s+') + '$');
-        if (re2.test(t)) { method = v; name = t.replace(re2, '').trim(); break; }
+        if (re2.test(name)) { method = v; name = name.replace(re2, '').trim(); steps = [v]; break; }
       }
     }
     name = name.replace(/^(the|a|an)\s+/, '').trim();
+    name = stripTrailingQty(name);
     if (!name) name = t || 'item';
-    var label = method ? (cap(name) + ' / ' + method) : cap(name);
-    return { name: name, method: method || 'prep', label: label };
+    var pureeHit = name.match(/^(.*?)\s+(puree|purees|sauce|gel|gels|oil|oils|jus|dressing|vinaigrette)$/i);
+    if (pureeHit && pureeHit[1] && pureeHit[1].length >= 3) {
+      var pm = pureeHit[2].toLowerCase();
+      if (pm.indexOf('puree') === 0) { if (!method || method === 'prep' || method === 'blend' || method === 'cook') method = 'puree'; }
+      else if (pm === 'gel' || pm === 'gels') { if (!method || method === 'prep') method = 'gel'; }
+      else if (!method || method === 'prep') method = pm.replace(/s$/, '');
+      name = pureeHit[1].trim();
+    }
+    var displayName = name;
+    name = applyNameSynonyms(name);
+    var canon = canonicalName(name) || name;
+    method = resolveMethod(method) || 'prep';
+    var base = baseIngredientOf(displayName || name);
+    var label = method && method !== 'prep' ? (cap(displayName) + ' / ' + method) : cap(displayName);
+    return {
+      name: canon,
+      method: method,
+      label: label,
+      displayName: displayName,
+      base: base,
+      steps: steps,
+      miseHint: base && MISE_HINTS[base] ? MISE_HINTS[base] : (base ? ('Shared mise: prep ' + base + ' together where windows allow') : '')
+    };
   }
   function cap(s) {
     return String(s || '').replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+  }
+
+  /** Groups rows that share a base ingredient but differ in method — hint only, not merged. */
+  function findSharedMise(rows) {
+    var byBase = {};
+    (rows || []).forEach(function (r, idx) {
+      var p = parseTaskParts(r.task || r.item || '');
+      if (!p.base) return;
+      if (!byBase[p.base]) byBase[p.base] = [];
+      byBase[p.base].push({ idx: idx, row: r, parts: p });
+    });
+    var out = [];
+    Object.keys(byBase).forEach(function (base) {
+      var list = byBase[base];
+      var methods = {};
+      list.forEach(function (x) { methods[x.parts.method] = true; });
+      if (Object.keys(methods).length < 2 && list.length < 2) return;
+      if (Object.keys(methods).length < 2 && list.length < 3) return;
+      out.push({
+        base: base,
+        hint: MISE_HINTS[base] || ('Shared mise: prep ' + base + ' together where windows allow'),
+        methods: Object.keys(methods),
+        count: list.length,
+        labels: list.map(function (x) { return x.parts.label; })
+      });
+    });
+    return out;
   }
 
   function unitKey(unit, toBaseQty) {
@@ -476,7 +724,8 @@
   function makeGroup(key, pack, deps) {
     var members = pack.members.map(function (m) { return m.row; });
     var win = pack.win;
-    var parts = parseTaskParts(members[0].task);
+    var parts = parseTaskParts(members[0].task || members[0].item);
+    var miseHint = parts.miseHint || '';
     var computeTotal = deps.computeTotal || function () { return null; };
     var toBaseQty = deps.toBaseQty || function (n, u) { return { n: n, u: u, key: String(u || '').toLowerCase() }; };
     var total = 0, hasTotal = false, unit = members[0].unit || '';
@@ -496,6 +745,8 @@
     return {
       batchKey: key,
       taskLabel: parts.label,
+      miseHint: typeof miseHint !== 'undefined' ? miseHint : (parts.miseHint || ''),
+      base: parts.base || '',
       name: parts.name,
       method: parts.method,
       unit: unit,
@@ -539,6 +790,8 @@
     return {
       batchKey: batchKey(row, deps),
       taskLabel: parts.label,
+      miseHint: typeof miseHint !== 'undefined' ? miseHint : (parts.miseHint || ''),
+      base: parts.base || '',
       name: parts.name,
       method: parts.method,
       unit: based ? based.u : (row.unit || ''),
@@ -713,6 +966,11 @@
     DEFAULT_BATCHABLE: DEFAULT_BATCHABLE,
     DEFAULT_BATCH_WINDOW: DEFAULT_BATCH_WINDOW,
     parseTaskParts: parseTaskParts,
+    findSharedMise: findSharedMise,
+    baseIngredientOf: baseIngredientOf,
+    applyNameSynonyms: applyNameSynonyms,
+    fuzzyMatchToken: fuzzyMatchToken,
+    editDist: editDist,
     batchKey: batchKey,
     batchWindowFor: batchWindowFor,
     isFourDayProtein: isFourDayProtein,

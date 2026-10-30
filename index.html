@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.1-trial">
+<meta name="prepline-version" content="4.7.2-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -86,6 +86,7 @@ var LICENSE_CONFIG = {
 <script src="rules-ui.js"></script>
 <script src="batching.js"></script>
 <script src="upgrades-47.js"></script>
+<script src="upgrades-472.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -339,7 +340,11 @@ var LICENSE_CONFIG = {
   #preplistTab .empty{padding:70px 20px; text-align:center; color:var(--ink-soft);}
   #preplistTab .empty .big{font-family:'Fraunces',sans-serif; font-size:19px; color:var(--ink); margin-bottom:7px;}
 
-  #preplistTab .viewtoggle {
+  .u47-plan-toggle{display:flex;gap:0;margin:0 0 4px;border:1px solid var(--line,#D6D2C4);border-radius:12px;overflow:hidden;background:#fff;box-shadow:var(--shadow-sm);max-width:420px;}
+  .u47-plan-btn{flex:1;border:0;background:transparent;padding:12px 14px;font:700 14px/1.2 Inter,sans-serif;color:var(--ink-soft,#5C5F58);cursor:pointer;}
+  .u47-plan-btn.on{background:var(--ink,#1C1E1B);color:#fff;}
+  .u47-plan-btn:not(.on):hover{background:rgba(28,30,27,0.06);}
+    #preplistTab .viewtoggle {
     display:inline-flex; gap:2px; margin-bottom:22px; background:var(--line);
     padding:4px; border-radius:11px; box-shadow:inset 0 1px 2px rgba(28,30,27,0.07);
   }
@@ -921,7 +926,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.1</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.2</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -2110,21 +2115,61 @@ function prepWordRe(w){
   return (_pvRe[w] = new RegExp('(^|[^a-z])' + core + (star ? '' : '(?![a-z])'), 'i'));
 }
 function prepNormText(t){ return String(t == null ? '' : t).toLowerCase().replace(/[ée]/g, m=>m==='é'?'e':m).replace(/['’]s\b/g, ''); }
-function prepCatByWords(text, family){
-  const t = prepNormText(text);
-  if (/\bgoat'?s?\s+(cheese|curd)\b/i.test(String(text))) { /* goat's cheese is not red meat */ }
-  // Eggplant "steak" / centrepiece painted protein-colour is still a vegetable job
-  if (/\b(eggplant|aubergine)\b/.test(t)){
+function prepCatByWords(text, family, dishCtx){
+  const raw = String(text == null ? '' : text);
+  const head = prepNormText(raw.split('/')[0] || raw); // ingredient head before method pipeline
+  const t = prepNormText(raw);
+  const dish = prepNormText(dishCtx || '');
+  if (/\bgoat'?s?\s+(cheese|curd)\b/i.test(raw)) { /* goat's cheese is not red meat */ }
+  // Eggplant centrepiece: keyword path prefers veg; legend colour still overrides in applyColourLegend
+  if (/\b(eggplant|aubergine)\b/.test(head)){
     if (!family || family === 'veg' || family === 'protein'){
       const v = prepVocab().find(c => c.key === 'veg'); if (v) return v;
     }
   }
+  // Product-type in the NAME wins over garnish herbs / veg produce words
+  // e.g. "Pea Tarragon Puree" → gels; "Porcini Mushroom Soil" → dry; "Chicken Jus" → gels
+  const productRules = [
+    { re: /\b(puree|purees|purée|purées|coulis|fluid gel|gel|gels)\b/, key: 'gels' },
+    { re: /\b(jus|gravy|reduction|ragu|ragout|romesco|ponzu|salsa|relish|chutney)\b/, key: 'gels' },
+    { re: /\b(dressing|vinaigrette|mayo|mayonnaise|aioli)\b/, key: 'dressing' },
+    { re: /\b(oil|oils)\b/, key: 'oil' },
+    { re: /\b(butter|beurre)\b/, key: 'dairy', neg: /\b(no|without|df|dairy[- ]free)\b.{0,12}\bbutter\b|\bbutter\b.{0,8}\b(free|omit)/ },
+    { re: /\b(soil|crumb|crumbs|crumble|dust|powder|tuile|dukkah|granola)\b/, key: 'dry' },
+    { re: /\b(microherb|micro herbs|micro greens|micros|cress|tendril)\b/, key: 'micro' },
+  ];
+  for (const rule of productRules){
+    if (rule.re.test(head) && !(rule.neg && rule.neg.test(head))){
+      const hit = prepCatByKey(rule.key);
+      if (hit && (!family || hit.family === family || (family === 'garnish' && hit.family === 'garnish') || (family === 'sauce' && (hit.family === 'sauce' || hit.family === 'dressing' || hit.family === 'dairy')))){
+        return hit;
+      }
+    }
+  }
+  // Score matches: head-noun hits beat trailing method words (glaze on a protein/veg line)
+  let best = null, bestScore = -1;
   for (const c of prepVocab()){
     if (family && c.family !== family) continue;
     if (c.key === 'redmeat' && /\bgoat'?s?\s*(cheese|curd|milk)\b/.test(t) && !/\b(beef|lamb|pork|veal|venison)\b/.test(t)) continue;
-    if ((c.words || []).some(w => prepWordRe(w).test(t))) return c;
+    let score = 0;
+    for (const w of (c.words || [])){
+      const re = prepWordRe(w);
+      if (re.test(head)) score = Math.max(score, 100 + w.replace('*','').length);
+      else if (re.test(t)) score = Math.max(score, 40 + w.replace('*','').length);
+    }
+    if (score > 0 && dish){
+      if (c.family === 'protein' && c.key === 'poultry' && /\b(duck|chicken|poultry|quail)\b/.test(dish)) score += 15;
+      if (c.family === 'protein' && c.key === 'seafood' && /\b(salmon|fish|prawn|barra|cod|crab)\b/.test(dish)) score += 15;
+      if (c.family === 'protein' && c.key === 'redmeat' && /\b(beef|lamb|pork|wagyu|eye fillet)\b/.test(dish)) score += 15;
+    }
+    if (c.key === 'gels' && score > 0 && score < 100 && /\b(asparagus|carrot|chicken|duck|beef|lamb|salmon|prawn|eggplant)\b/.test(head)){
+      score -= 30;
+    }
+    // Herb garnish words inside a puree/jus name already handled by productRules
+    if (c.family === 'garnish' && score >= 100 && /\b(puree|jus|sauce|gel|ragu|oil)\b/.test(head)) score -= 50;
+    if (score > bestScore){ bestScore = score; best = c; }
   }
-  return null;
+  return bestScore > 0 ? best : null;
 }
 // a legend label ("2. Vege", "Proteins", "Garnish, herbs, oils") -> {key} exact category, or {family} to split by keyword
 function prepCatFromLegendLabel(label){
@@ -2177,21 +2222,21 @@ function prepSaturdayCap(){
   }catch(e){}
   return 3;
 }
-function prepInfoFor(text, legendPrep, section){
+function prepInfoFor(text, legendPrep, section, dishCtx){
   let c = null, src = '';
   if (legendPrep){
     if (legendPrep.key){
       c = prepCatByKey(legendPrep.key);
       // a generic garnish legend colour can still be a micro herb / oil / dry garnish line
-      if (c && c.family === 'garnish' && c.key === 'garnish'){ const k = prepCatByWords(text, 'garnish'); if (k) c = k; }
+      if (c && c.family === 'garnish' && c.key === 'garnish'){ const k = prepCatByWords(text, 'garnish', dishCtx); if (k) c = k; }
     } else if (legendPrep.family){
-      c = prepCatByWords(text, legendPrep.family) || (legendPrep.family === 'garnish' ? prepCatByKey('garnish') : null);
+      c = prepCatByWords(text, legendPrep.family, dishCtx) || (legendPrep.family === 'garnish' ? prepCatByKey('garnish') : null);
     }
     if (c) src = 'legend';
   }
-  if (!c){ c = prepCatByWords(text, null); if (c) src = 'keyword'; }
+  if (!c){ c = prepCatByWords(text, null, dishCtx); if (c) src = 'keyword'; }
   if (!c && section){
-    if (section === 'Proteins'){ c = prepCatByWords(text, 'protein'); if (c) src = 'section'; }
+    if (section === 'Proteins'){ c = prepCatByWords(text, 'protein', dishCtx); if (c) src = 'section'; }
     else {
       const fb = sectionPrepFallback(section);
       if (fb){ c = prepCatByKey(fb); if (c) src = 'section'; }
@@ -2265,6 +2310,42 @@ function prepStartDayInfo(eventDay, r){
 function prepStartDay(eventDay, r){
   return prepStartDayInfo(eventDay, r).day;
 }
+
+// 4.7.2: balance daily prep load (Mon–Sat), never Sunday; respect lead windows roughly by not moving past event day.
+function balancePrepLoad(rows, opts){
+  opts = opts || {};
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const getEventDay = opts.getEventDay || (typeof getEventDay === 'function' ? getEventDay : ()=>'');
+  const list = (rows || []).filter(r => r && r.day && r.day !== 'Sunday');
+  if (list.length < 8) return rows;
+  const load = {}; days.forEach(d => load[d]=0);
+  list.forEach(r => { if (load[r.day]!=null) load[r.day]++; });
+  const avg = list.length / 6;
+  const overloaded = days.filter(d => load[d] > avg * 1.45 + 2);
+  const under = days.filter(d => load[d] < avg * 0.75);
+  if (!overloaded.length || !under.length) return rows;
+  overloaded.forEach(from => {
+    const cands = list.filter(r => r.day === from).slice().sort((a,b)=>(b.leadDays||0)-(a.leadDays||0));
+    for (const r of cands){
+      if (load[from] <= avg * 1.2) break;
+      const ed = getEventDay(r.dish) || r.eventDay || '';
+      const ei = days.indexOf(ed);
+      for (const to of under){
+        if (load[to] >= avg) continue;
+        const ti = days.indexOf(to);
+        // do not place prep on/after event day
+        if (ei >= 0 && ti >= 0 && ti >= ei) continue;
+        if (to === 'Sunday') continue;
+        r.day = to;
+        r.dayReason = (r.dayReason ? r.dayReason + ' · ' : '') + 'Balanced from ' + from.slice(0,3);
+        load[from]--; load[to]++;
+        break;
+      }
+    }
+  });
+  return rows;
+}
+
 function applyPrepStartDay(r, eventDay){
   const info = prepStartDayInfo(eventDay, r);
   r.day = info.day || '';
@@ -5152,6 +5233,15 @@ function render(){
   invalidateDishNumbers();
   const area = document.getElementById('resultsArea');
   scheduleOnetimeSave();   // v3.2.2: every change that re-renders is saved (pax edits were lost on reload)
+  try { if (window.PreplineUpgrades47) {
+    PreplineUpgrades47.learnSectionsFromRows(ROWS);
+    if (window.PreplineBatch) { PreplineBatch.setBatchAcross(true); }
+    if (PreplineUpgrades47.bindShortcuts) PreplineUpgrades47.bindShortcuts({
+      onChange: ()=>render(),
+      exportXlsx: ()=>exportOrganisedXlsx47(),
+      exportPdf: ()=>exportOrganisedPdf47 && exportOrganisedPdf47()
+    });
+  } } catch(e){}
   renderPaxPanel();
   renderStaffingPanel();
   if (ROWS.length===0){
@@ -5165,25 +5255,31 @@ function render(){
   maybeSurveyPrompt();
   let html = versionSwitchHtml() + sampleBannerHtml() + pdfCookedBannerHtml(ROWS) + renderMasterSummary() + poPanelHtml() + yieldPanelHtml() + blockedDaysPanelHtml() + costSummaryHtml();
 
-  html += `<div class="viewtoggle no-print">
-    <button class="${viewMode==='dish'?'':'secondary'}" onclick="setView('dish')" type="button">By dish — how much to make</button>
-    <button class="${viewMode==='section'?'':'secondary'}" onclick="setView('section')" type="button">By team section</button>
-    <button class="${viewMode==='priority'?'':'secondary'}" onclick="setView('priority')" type="button">By prep day</button>
+  html += `<div class="u47-plan-toggle no-print" id="u47PlanToggle" role="tablist" aria-label="Planning view">
+    <button type="button" class="u47-plan-btn ${viewMode==='dish'?'on':''}" onclick="setView('dish')">By dish</button>
+    <button type="button" class="u47-plan-btn ${viewMode==='priority'?'on':''}" onclick="setView('priority')">By day</button>
+    <button type="button" class="u47-plan-btn ${viewMode==='section'?'on':''}" onclick="setView('section')">By section</button>
+  </div>
+  <div class="viewtoggle no-print" style="margin-top:8px;">
     <button class="${viewMode==='item'?'':'secondary'}" onclick="setView('item')" type="button" id="itemViewBtn">By item</button>
-    <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet (by supplier)</button>
-    <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week view</button>
+    <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week calendar</button>
+    <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet</button>
     <button class="${viewMode==='order47'?'':'secondary'}" onclick="setView('order47')" type="button" id="order47ViewBtn">Order (batched)</button>
     <button class="${viewMode==='recipes'?'':'secondary'}" onclick="setView('recipes')" type="button" id="recipesViewBtn">Yield library</button>
     <button class="${viewMode==='voice'?'':'secondary'}" onclick="setView('voice')" type="button" id="voiceViewBtn">Voice add</button>
-    ${Object.keys(originalPageImages).length ? `<button class="${viewMode==='orig'?'':'secondary'}" onclick="setView('orig')" type="button" id="origViewBtn">📖 Original PTs (Ref # filled)</button>` : ''}
+    ${Object.keys(originalPageImages).length ? `<button class="${viewMode==='orig'?'':'secondary'}" onclick="setView('orig')" type="button" id="origViewBtn">📖 Original PTs</button>` : ''}
   </div>
   <div class="row no-print" style="margin-bottom:10px; gap:8px; flex-wrap:wrap;">
-    ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="Exports this view (By dish) as an editable .xlsx">📊 Export to Excel (editable)</button>`
-      : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="Exports this view (By team section) as an editable .xlsx">📊 Export to Excel (editable)</button>`
-      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' ? ''
-      : viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports week as editable .xlsx">📊 Export to Excel (editable)</button>`
-      : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="Exports this view (By prep day) as an editable .xlsx">📊 Export to Excel (editable)</button>`}
+    ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="By dish Excel">📊 Excel · By dish</button>`
+      : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="By section Excel">📊 Excel · By section</button>`
+      : viewMode==='priority' || viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="By day Excel">📊 Excel · By day</button>`
+      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' || viewMode==='shop47' ? ''
+      : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx">📊 Export to Excel</button>`}
+    ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Yellow header, fixed columns, freeze top row">📊 Organised export (yellow header)</button>
+    <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
+    <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>
+    <button class="secondary" onclick="setView('shop47')" type="button" id="shop47ViewBtn">Shopping (week)</button>
   </div>
   <div class="row no-print print-row" style="margin-bottom:20px; gap:8px; align-items:center;">
     <button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
@@ -5210,7 +5306,7 @@ function render(){
     : viewMode==='order47' ? renderOrder47()
     : viewMode==='recipes' ? renderRecipes47()
     : viewMode==='voice' ? renderVoice47()
-    : viewMode==='item' ? renderByItem47()
+    : viewMode==='item' ? renderByItem47() : viewMode==='shop47' ? renderShop47()
     : (viewMode==='orig' && Object.keys(originalPageImages).length ? renderOriginalsTab() : renderByPriority());
   // v3.4.4: re-rendering after a manual edit keeps the page where it was and keeps focus
   // on the control that was just changed (it used to jump back to the top).
@@ -8440,6 +8536,42 @@ function renderByItem47(){
   return PreplineUpgrades47.renderByItemView(viewRows(), batchDeps(), {
     escapeHtml, cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish,
     tickControlsHtml, batchReasonHtml, unbatchButtonHtml
+  });
+}
+function exportPlanPdf47(){
+  // Print current plan view (dish / day / section) via browser print — clean A4
+  try{
+    document.body.classList.add('u47-plan-print');
+    window.print();
+    setTimeout(()=>document.body.classList.remove('u47-plan-print'), 800);
+    setStatus('PDF/print for '+viewMode+' view — use your browser Save as PDF.', 'ok');
+  }catch(e){ setStatus('Print failed: '+(e&&e.message||e), 'err'); }
+}
+function exportOrganisedPdf47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.exportOrganisedPdf){ setStatus('PDF export unavailable', 'err'); return; }
+  try{
+    const staffBySection = {};
+    (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
+    const r = PreplineUpgrades47.exportOrganisedPdf(viewRows(), batchDeps(), {
+      cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish
+    });
+    setStatus('PDF opened for print ('+(r&&r.rows||0)+' rows).', 'ok');
+  }catch(e){ setStatus('PDF failed: '+(e&&e.message||e), 'err'); }
+}
+function shareOrganised47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.shareOrMailtoOrganised){ setStatus('Share unavailable', 'err'); return; }
+  const staffBySection = {};
+  (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
+  PreplineUpgrades47.shareOrMailtoOrganised(viewRows(), batchDeps(), {
+    cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish,
+    weekLabel: (typeof localYMD==='function'?localYMD():new Date().toISOString().slice(0,10))
+  }).then(r=>setStatus('Share: '+(r&&r.mode||'ok')+(r&&r.to?(' · to field: '+r.to):'')+' — you press send.', 'ok'))
+    .catch(e=>setStatus('Share failed: '+(e&&e.message||e), 'err'));
+}
+function renderShop47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.weekShoppingHtml) return '<div class="panel">Shopping list unavailable</div>';
+  return PreplineUpgrades47.weekShoppingHtml(viewRows(), batchDeps(), {
+    escapeHtml, applyYield: (n,g)=>PreplineUpgrades47.applyYieldToQty(n, g)
   });
 }
 function exportOrganisedXlsx47(){

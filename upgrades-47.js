@@ -1,7 +1,7 @@
 /* Prepline 4.7.x upgrades (trial copy only). Autoprod.
  * 1 Week view  2 Tick-off  3 Change check  4 Order-from-batches
  * 5 Recipe/yield lib  6 Station sheets  7 Voice input  8 Auto-section
- * 10 Organised yellow-header xlsx (10 cols) + By item view + drag order
+ * 10 Organised yellow-header xlsx (11 cols, Section after Item) + By item view + drag order
  * Shared row builder used by screen + export.
  */
 (function (root) {
@@ -17,6 +17,150 @@
     'Proteins',
     'Box off/ Trolley organising team'
   ];
+  /* Light legend tints: blue sauce, green vege, orange garnish, yellow starch, red protein */
+  var SECTION_COLOURS = {
+    'Sauce, Purees and Gels': { bg: 'FFD6EAF7', css: '#D6EAF7', ink: '#1A56DB', short: 'Sauce' },
+    'Vegetables': { bg: 'FFE4F0E1', css: '#E4F0E1', ink: '#2F6B3A', short: 'Vege' },
+    'Garnishes, Herbs, Powders, Oils Etc.': { bg: 'FFF6E6D2', css: '#F6E6D2', ink: '#C97A2E', short: 'Garnish' },
+    'Starch': { bg: 'FFFFF4C2', css: '#FFF4C2', ink: '#7A5A00', short: 'Starch' },
+    'Proteins': { bg: 'FFF5E3DC', css: '#F5E3DC', ink: '#B5442E', short: 'Protein' },
+    'Box off/ Trolley organising team': { bg: 'FFEFE1D2', css: '#EFE1D2', ink: '#8A5A34', short: 'Box' }
+  };
+  function sectionColour(sec) {
+    return SECTION_COLOURS[sec] || { bg: 'FFF2F2F2', css: '#F2F2F2', ink: '#5C5A52', short: sec || '—' };
+  }
+  var NOTES_KEY = 'prepline.organised.notes.v1';
+  var STAFF_OVERRIDE_KEY = 'prepline.organised.staff.v1';
+  var HISTORY_KEY = 'prepline.history.v1';
+  var UNDO_KEY = 'prepline.undo.v1';
+  var DEVICE_WHO_KEY = 'prepline.deviceWho.v1';
+  var BULK_SEL_KEY = 'prepline.organised.bulkSel.v1';
+  function notesMap() { return lsGet(NOTES_KEY, {}) || {}; }
+  function saveNotesMap(m) { lsSet(NOTES_KEY, m || {}); }
+  function staffOverrideMap() { return lsGet(STAFF_OVERRIDE_KEY, {}) || {}; }
+  function saveStaffOverrideMap(m) { lsSet(STAFF_OVERRIDE_KEY, m || {}); }
+  function bulkSel() { var a = lsGet(BULK_SEL_KEY, []); return Array.isArray(a) ? a : []; }
+  function saveBulkSel(a) { lsSet(BULK_SEL_KEY, a || []); }
+  function getDeviceWho() {
+    var w = lsGet(DEVICE_WHO_KEY, null);
+    if (w && w.name) return w;
+    try {
+      var acc = JSON.parse(localStorage.getItem('prepline.account.v1') || 'null');
+      if (acc && (acc.name || acc.email)) {
+        w = { name: acc.name || '', email: acc.email || '' };
+        lsSet(DEVICE_WHO_KEY, w);
+        return w;
+      }
+    } catch (e) {}
+    return { name: '', email: '' };
+  }
+  function setDeviceWho(name) {
+    var w = getDeviceWho();
+    w.name = String(name || '').trim();
+    lsSet(DEVICE_WHO_KEY, w);
+    return w;
+  }
+  function whoLabel() {
+    var w = getDeviceWho();
+    if (w.name && w.email) return w.name + ' <' + w.email + '>';
+    return w.name || w.email || 'This device';
+  }
+  function sydneyStamp(d) {
+    d = d || new Date();
+    try {
+      return new Intl.DateTimeFormat('en-AU', {
+        timeZone: 'Australia/Sydney', year: 'numeric', month: 'short', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+      }).format(d) + ' Sydney';
+    } catch (e) { return d.toISOString(); }
+  }
+  function historyList() {
+    var a = lsGet(HISTORY_KEY, []);
+    return Array.isArray(a) ? a : [];
+  }
+  function pushHistory(entry) {
+    var a = historyList();
+    a.unshift({
+      at: Date.now(),
+      sydney: sydneyStamp(),
+      who: whoLabel(),
+      what: entry.what || '',
+      from: entry.from == null ? '' : String(entry.from),
+      to: entry.to == null ? '' : String(entry.to),
+      key: entry.key || ''
+    });
+    if (a.length > 500) a = a.slice(0, 500);
+    lsSet(HISTORY_KEY, a);
+    return a;
+  }
+  function exportHistoryCsv() {
+    var rows = [['When (Sydney)', 'Who', 'What', 'From', 'To', 'Key']];
+    historyList().forEach(function (h) {
+      rows.push([h.sydney || '', h.who || '', h.what || '', h.from || '', h.to || '', h.key || '']);
+    });
+    var csv = rows.map(function (r) {
+      return r.map(function (c) {
+        var s = String(c == null ? '' : c);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',');
+    }).join('\n');
+    downloadText('Prepline_History_' + new Date().toISOString().slice(0, 10) + '.csv', csv, 'text/csv');
+    return rows.length - 1;
+  }
+  function undoStack() {
+    var a = lsGet(UNDO_KEY, []);
+    return Array.isArray(a) ? a : [];
+  }
+  function pushUndo(action) {
+    var a = undoStack();
+    a.push(Object.assign({ at: Date.now() }, action || {}));
+    if (a.length > 40) a = a.slice(-40);
+    lsSet(UNDO_KEY, a);
+  }
+  function popUndo() {
+    var a = undoStack();
+    var last = a.pop();
+    lsSet(UNDO_KEY, a);
+    return last || null;
+  }
+  function showToast(msg, undoFn) {
+    if (typeof document === 'undefined') return;
+    var el = document.getElementById('u47Toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'u47Toast';
+      el.className = 'u47-toast no-print';
+      document.body.appendChild(el);
+    }
+    el.innerHTML = '';
+    var span = document.createElement('span');
+    span.textContent = msg || '';
+    el.appendChild(span);
+    if (typeof undoFn === 'function') {
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = 'Undo'; b.className = 'u47-toast-undo';
+      b.onclick = function () { undoFn(); el.classList.remove('show'); };
+      el.appendChild(b);
+    }
+    el.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { el.classList.remove('show'); }, 6000);
+  }
+  function markSavedIndicator() {
+    if (typeof document === 'undefined') return;
+    var el = document.getElementById('u47Saved');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'u47Saved';
+      el.className = 'u47-saved no-print';
+      el.textContent = 'Saved';
+      document.body.appendChild(el);
+    }
+    el.classList.add('show');
+    clearTimeout(markSavedIndicator._t);
+    markSavedIndicator._t = setTimeout(function () { el.classList.remove('show'); }, 1600);
+  }
+
   var SHELF_DAYS = {
     poultry: 4, redmeat: 4, crabcroq: 4, seafood: 1, fish: 1,
     veg: 4, dry: 4, oil: 4, gels: 3, dressing: 4, dairy: 4, starch: 3,
@@ -96,7 +240,15 @@
     var byDay = buildWeekGroups(rows, deps);
     var days = WEEKDAYS.filter(function (d) { return d !== 'Sunday'; }).concat(['Unscheduled']);
     var html = '<div class="u47-week" id="u47Week">';
-    html += '<div class="u47-note no-print">Week view: one list per day, grouped by section. Uses the same batching rules as By prep day.</div>';
+    html += '<div class="u47-note no-print">Prep-day calendar: dishes/items by the day they are prepped (same batching as By prep day). Tap a day chip to jump.</div>';
+    html += '<div class="u47-calgrid no-print" role="navigation">';
+    days.forEach(function (day) {
+      var secs0 = byDay[day] || {};
+      var n0 = Object.keys(secs0).reduce(function (s, k) { return s + secs0[k].length; }, 0);
+      html += '<a class="u47-calchip' + (n0 ? '' : ' empty') + '" href="#u47-day-' + encodeURIComponent(day) + '">' +
+        '<b>' + escH(day === 'Unscheduled' ? 'TBC' : shortDay(day)) + '</b><span>' + n0 + '</span></a>';
+    });
+    html += '</div>';
     days.forEach(function (day) {
       var secs = byDay[day] || {};
       var keys = Object.keys(secs);
@@ -107,8 +259,8 @@
         return ia !== ib ? ia - ib : a.localeCompare(b);
       });
       var n = keys.reduce(function (s, k) { return s + secs[k].length; }, 0);
-      html += '<div class="panel u47-daypanel"><h3 class="u47-dayhead">' + escH(day === 'Unscheduled' ? 'Unscheduled' : day) +
-        ' <span class="meta">' + n + ' line' + (n === 1 ? '' : 's') + '</span></h3>';
+      html += '<div class="panel u47-daypanel" id="u47-day-' + escH(day) + '"><h3 class="u47-dayhead">' + escH(day === 'Unscheduled' ? 'Unscheduled' : day) +
+        ' <span class="meta">' + n + ' line' + (n === 1 ? '' : 's') + ' · prep day</span></h3>';
       keys.forEach(function (sec) {
         html += '<h4 class="u47-sechead">' + escH(sec) + '</h4>';
         html += '<div class="section-table-wrap"><table><thead><tr><th>Task</th><th>For</th><th>Qty</th><th>Covers</th></tr></thead><tbody>';
@@ -117,7 +269,8 @@
           var dishes = (g.dishes || []).map(clean).join(', ');
           var sub = mergedSubtitleHtml(g, escH);
           var tick = tickControlsHtml(g, escH);
-          html += '<tr><td class="task">' + escH(g.taskLabel) + sub + tick + '</td><td class="dish">' +
+          var sc = sectionColour(sec);
+          html += '<tr style="background:' + sc.css + '"><td class="task">' + escH(g.taskLabel) + sub + tick + '</td><td class="dish">' +
             escH(dishes) + '</td><td class="qty">' + total + '</td><td>' + escH(g.covers || '—') + '</td></tr>';
         });
         html += '</tbody></table></div>';
@@ -475,11 +628,13 @@
     escH = wrapEsc(escH);
     var lib = recipeLib();
     var html = '<div class="panel u47-recipes no-print" id="u47Recipes"><h3 style="margin:0 0 6px;">Recipe &amp; yield library</h3>' +
-      '<div class="meta">Saved on this device. Yield % = usable weight ÷ raw weight × 100. Applied to order list totals (raw needed).</div>' +
-      '<div class="section-table-wrap"><table><thead><tr><th>Ingredient</th><th>Yield %</th><th>Note</th><th></th></tr></thead><tbody>';
+      '<div class="meta">Saved on this device. Yield % = usable weight ÷ raw weight × 100. Applied to order list totals (raw needed). Prep min blank until set — shows as "set time".</div>' +
+      '<div class="section-table-wrap"><table><thead><tr><th>Ingredient</th><th>Yield %</th><th>Prep min</th><th>Note</th><th></th></tr></thead><tbody>';
     lib.items.forEach(function (it, i) {
       html += '<tr><td><input data-ri="' + i + '" data-f="name" value="' + escH(it.name) + '"></td>' +
         '<td><input data-ri="' + i + '" data-f="yieldPct" type="number" min="1" max="100" step="0.1" value="' + escH(it.yieldPct) + '" style="width:80px"></td>' +
+        '<td><input data-ri="' + i + '" data-f="prepMinutes" type="number" min="0" step="1" placeholder="set time" value="' +
+          escH(it.prepMinutes != null && it.prepMinutes !== '' ? it.prepMinutes : '') + '" style="width:80px" title="Minutes — blank until set"></td>' +
         '<td><input data-ri="' + i + '" data-f="note" value="' + escH(it.note || '') + '"></td>' +
         '<td><button type="button" class="ghost" data-rdel="' + i + '">Remove</button></td></tr>';
     });
@@ -503,6 +658,12 @@
         lib.items[i] = {
           name: inp.value,
           yieldPct: row ? Number(row.value) : 100,
+          prepMinutes: (function () {
+            var pm = rootEl.querySelector('[data-ri="' + i + '"][data-f="prepMinutes"]');
+            if (!pm || pm.value === '') return '';
+            var n = Number(pm.value);
+            return Number.isFinite(n) ? n : '';
+          })(),
           note: note ? note.value : ''
         };
       });
@@ -523,7 +684,7 @@
     var add = rootEl.querySelector('#u47RecAdd');
     if (add) add.addEventListener('click', function () {
       var lib = recipeLib();
-      lib.items.push({ name: '', yieldPct: 70, note: '' });
+      lib.items.push({ name: '', yieldPct: 70, note: '', prepMinutes: '' });
       saveRecipes(lib);
       if (onChange) onChange();
     });
@@ -545,9 +706,9 @@
     if (seed) seed.addEventListener('click', function () {
       var lib = recipeLib();
       [
-        { name: 'chicken breast', yieldPct: 70, note: 'raw → trimmed' },
-        { name: 'beef short rib', yieldPct: 65, note: 'raw → trimmed' },
-        { name: 'salmon', yieldPct: 80, note: 'raw → portioned' }
+        { name: 'chicken breast', yieldPct: 70, note: 'raw → trimmed', prepMinutes: '' },
+        { name: 'beef short rib', yieldPct: 65, note: 'raw → trimmed', prepMinutes: '' },
+        { name: 'salmon', yieldPct: 80, note: 'raw → portioned', prepMinutes: '' }
       ].forEach(function (ex) {
         if (!lib.items.some(function (x) { return normKey(x.name) === normKey(ex.name); })) lib.items.push(ex);
       });
@@ -781,7 +942,7 @@
   /* ---------- 10) Organised rows (shared screen + export) ---------- */
   var ORGANISED_HEADERS = [
     'Function name', 'Dish name', 'Pax / packs', 'Prep day', 'Event day',
-    'Item name', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated'
+    'Item name', 'Section', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated', 'Notes'
   ];
   var ORDER_KEY = 'prepline.organised.order.v1';
   var ITEM_VIEW_KEY = 'prepline.organised.itemView.v1';
@@ -861,7 +1022,8 @@
       mode: s.mode === 'section' ? 'section' : 'item',
       sortCol: s.sortCol || null,
       sortDir: s.sortDir === 'desc' ? 'desc' : 'asc',
-      filters: s.filters && typeof s.filters === 'object' ? s.filters : {}
+      filters: s.filters && typeof s.filters === 'object' ? s.filters : {},
+      search: typeof s.search === 'string' ? s.search : ''
     };
   }
   function setItemViewState(patch) {
@@ -900,8 +1062,13 @@
       var qtyTotal = g.hasTotal
         ? (String(Math.round(g.total * 1000) / 1000) + ' ' + (g.unit || '')).trim()
         : 'set pax';
-      var staff = staffBySection[g.section] || helpers.defaultStaff || 'Unallocated';
       var itemName = g.taskLabel || '—';
+      var sectionName = g.section || '—';
+      var rk = rowKeyFor(g, batchNo);
+      var ov = staffOverrideMap();
+      var staff = (ov[rk] != null && ov[rk] !== '') ? ov[rk]
+        : (staffBySection[g.section] || helpers.defaultStaff || 'Unallocated');
+      var noteVal = (notesMap()[rk] != null) ? String(notesMap()[rk]) : '';
       var cells = {
         functionName: functionName || '—',
         dishName: dishName || '—',
@@ -909,30 +1076,48 @@
         prepDay: prepDay || '—',
         eventDay: eventDay || '—',
         itemName: itemName || '—',
+        section: sectionName || '—',
         qtyEach: qtyEach || '—',
         qtyTotal: qtyTotal || '—',
         batchNo: String(batchNo),
-        staff: staff || 'Unallocated'
+        staff: staff || 'Unallocated',
+        notes: noteVal === '' ? '—' : noteVal
       };
       Object.keys(cells).forEach(function (k) {
         if (cells[k] == null || cells[k] === '') cells[k] = '—';
       });
       out.push({
-        key: rowKeyFor(g, batchNo),
+        key: rk,
         cells: cells,
         values: [
           cells.functionName, cells.dishName, cells.paxPacks, cells.prepDay, cells.eventDay,
-          cells.itemName, cells.qtyEach, cells.qtyTotal, cells.batchNo, cells.staff
+          cells.itemName, cells.section, cells.qtyEach, cells.qtyTotal, cells.batchNo, cells.staff, cells.notes
         ],
-        section: g.section || '—',
+        section: sectionName || '—',
+        sectionFill: sectionColour(sectionName),
         merged: !!g.merged,
         shadeLate: shadeLate,
         gap: gap,
         group: g,
         itemNorm: normItem(itemName),
         eventIdx: dayIdx(latestEv),
-        functionNorm: normItem(functionName)
+        functionNorm: normItem(functionName),
+        dup: false,
+        dupCount: 0
       });
+    });
+    /* Duplicate warning: same item + same function (not intentional batch merges) */
+    var dupIndex = {};
+    out.forEach(function (r) {
+      if (r.merged) return;
+      var dk = r.itemNorm + '||' + r.functionNorm;
+      if (!dupIndex[dk]) dupIndex[dk] = [];
+      dupIndex[dk].push(r);
+    });
+    Object.keys(dupIndex).forEach(function (dk) {
+      var list = dupIndex[dk];
+      if (list.length < 2) return;
+      list.forEach(function (r) { r.dup = true; r.dupCount = list.length; });
     });
 
     out.sort(function (a, b) {
@@ -970,6 +1155,8 @@
       return {
         dishName: r.cells.dishName,
         itemName: r.cells.itemName,
+        section: r.cells.section,
+        notes: r.cells.notes,
         qtyEach: r.cells.qtyEach,
         qtyTotal: r.cells.qtyTotal,
         batchNo: r.cells.batchNo,
@@ -1002,6 +1189,7 @@
   function exportOrganisedXlsx(rows, deps, helpers) {
     helpers = helpers || {};
     var data = buildOrganisedRows(rows, deps, helpers);
+    if (!helpers.allRows) data = applyItemFiltersSort(data, getItemViewState());
     var headers = ORGANISED_HEADERS.slice();
     var name = 'Prepline_Organised_' + (new Date().toISOString().slice(0, 10)) + '.xlsx';
     var lateFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
@@ -1026,10 +1214,12 @@
         { key: 'prepDay', width: 12 },
         { key: 'eventDay', width: 14 },
         { key: 'itemName', width: 32 },
+        { key: 'section', width: 22 },
         { key: 'qtyEach', width: 12 },
         { key: 'qtyTotal', width: 16 },
         { key: 'batchNo', width: 10 },
-        { key: 'staff', width: 16 }
+        { key: 'staff', width: 16 },
+        { key: 'notes', width: 24 }
       ];
       var head = ws.addRow(headers);
       head.eachCell(function (cell) {
@@ -1039,15 +1229,20 @@
       });
       data.forEach(function (r) {
         var row = ws.addRow(r.values.map(function (v) { return (v == null || v === '') ? '—' : v; }));
+        var secFill = r.sectionFill && r.sectionFill.bg
+          ? { type: 'pattern', pattern: 'solid', fgColor: { argb: r.sectionFill.bg } }
+          : null;
         row.eachCell(function (cell) {
           cell.alignment = { vertical: 'top', wrapText: true, horizontal: 'left' };
-          if (r.shadeLate) cell.fill = lateFill;
+          if (secFill) cell.fill = secFill;
+          else if (r.shadeLate) cell.fill = lateFill;
           if (cell.value == null || cell.value === '') cell.value = '—';
         });
       });
+      var ncols = headers.length;
       ws.eachRow(function (row, rn) {
         if (rn === 1) return;
-        for (var c = 1; c <= 10; c++) {
+        for (var c = 1; c <= ncols; c++) {
           var cell = row.getCell(c);
           if (cell.value == null || cell.value === '') cell.value = '—';
           cell.alignment = { vertical: 'top', wrapText: true, horizontal: 'left' };
@@ -1055,7 +1250,7 @@
       });
       ws.autoFilter = {
         from: { row: 1, column: 1 },
-        to: { row: Math.max(1, data.length + 1), column: 10 }
+        to: { row: Math.max(1, data.length + 1), column: ncols }
       };
       return wb.xlsx.writeBuffer().then(function (buf) {
         downloadBlob(buf, name);
@@ -1079,20 +1274,24 @@
         if (!ws[addr]) ws[addr] = { t: 's', v: headers[c] };
         ws[addr].s = { fill: yellow, font: bold, alignment: wrapTop };
       });
+      var ncols = headers.length;
       for (var r = 1; r < aoa.length; r++) {
-        for (var c = 0; c < 10; c++) {
+        for (var c = 0; c < ncols; c++) {
           var a = XLSX.utils.encode_cell({ r: r, c: c });
           if (!ws[a] || ws[a].v === '' || ws[a].v == null) ws[a] = { t: 's', v: '—' };
           var style = { alignment: wrapTop };
-          if (data[r - 1] && data[r - 1].shadeLate) style.fill = late;
+          var dr = data[r - 1];
+          if (dr && dr.sectionFill && dr.sectionFill.bg) style.fill = { patternType: 'solid', fgColor: { rgb: dr.sectionFill.bg.slice(2) } };
+          else if (dr && dr.shadeLate) style.fill = late;
           ws[a].s = Object.assign({}, ws[a].s || {}, style);
         }
       }
       ws['!cols'] = [
         { wch: 28 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
-        { wch: 32 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 16 }
+        { wch: 32 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 24 }
       ];
-      ws['!autofilter'] = { ref: 'A1:J' + Math.max(1, aoa.length) };
+      var lastCol = XLSX.utils.encode_col(ncols - 1);
+      ws['!autofilter'] = { ref: 'A1:' + lastCol + Math.max(1, aoa.length) };
       ws['!freeze'] = 'A2';
       ws['!views'] = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
       var wb = XLSX.utils.book_new();
@@ -1112,13 +1311,18 @@
 
   var COL_KEYS = [
     'functionName', 'dishName', 'paxPacks', 'prepDay', 'eventDay',
-    'itemName', 'qtyEach', 'qtyTotal', 'batchNo', 'staff'
+    'itemName', 'section', 'qtyEach', 'qtyTotal', 'batchNo', 'staff', 'notes'
   ];
 
   function applyItemFiltersSort(rows, state) {
     state = state || getItemViewState();
     var filters = state.filters || {};
+    var q = String(state.search || '').trim().toLowerCase();
     var filtered = rows.filter(function (r) {
+      if (q) {
+        var hay = (r.values || []).join(' ').toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
       return COL_KEYS.every(function (k) {
         var f = filters[k];
         if (!f) return true;
@@ -1138,6 +1342,11 @@
             if (ib < 0) return -1 * dir;
             return (ia - ib) * dir;
           }
+        }
+        if (col === 'section') {
+          var sa = SECTION_ORDER.indexOf(va), sb = SECTION_ORDER.indexOf(vb);
+          if (sa < 0) sa = 999; if (sb < 0) sb = 999;
+          if (sa !== sb) return (sa - sb) * dir;
         }
         if (col === 'itemName') { va = a.itemNorm; vb = b.itemNorm; }
         if (va < vb) return -1 * dir;
@@ -1199,6 +1408,7 @@
               (r.cells.functionName !== r.cells.dishName ? ' · ' + escH(r.cells.dishName) : '') + '</div>' +
             '<div class="u47-card-meta">' + escH(r.cells.prepDay) + ' prep → ' + escH(r.cells.eventDay) +
               ' · pax ' + escH(r.cells.paxPacks) + '</div>' +
+            '<div class="u47-card-meta">Section: ' + escH(r.cells.section) + '</div>' +
             '<div class="u47-card-qty">' + escH(r.cells.qtyEach) + ' each · <b>' + escH(r.cells.qtyTotal) + '</b>' +
               ' · batch ' + escH(r.cells.batchNo) + ' · ' + escH(r.cells.staff) + '</div>' +
             sub + unb +
@@ -1449,7 +1659,7 @@
   }
 
   root.PreplineUpgrades47 = {
-    VERSION: '4.7.1',
+    VERSION: '4.7.2',
     buildWeekGroups: buildWeekGroups,
     renderWeekView: renderWeekView,
     mergedSubtitleText: mergedSubtitleText,
@@ -1502,6 +1712,22 @@
     suggestSection: suggestSection,
     sectionBadgeHtml: sectionBadgeHtml,
     ORGANISED_HEADERS: ORGANISED_HEADERS,
+    SECTION_ORDER: SECTION_ORDER,
+    sectionColour: sectionColour,
+    notesMap: notesMap,
+    saveNotesMap: saveNotesMap,
+    staffOverrideMap: staffOverrideMap,
+    saveStaffOverrideMap: saveStaffOverrideMap,
+    pushHistory: pushHistory,
+    historyList: historyList,
+    exportHistoryCsv: exportHistoryCsv,
+    pushUndo: pushUndo,
+    popUndo: popUndo,
+    showToast: showToast,
+    markSavedIndicator: markSavedIndicator,
+    getDeviceWho: getDeviceWho,
+    setDeviceWho: setDeviceWho,
+    sydneyStamp: sydneyStamp,
     buildOrganisedRows: buildOrganisedRows,
     buildExportRows: buildExportRows,
     exportOrganisedXlsx: exportOrganisedXlsx,
