@@ -12,6 +12,8 @@ import { spawnSync } from 'child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const OUT = process.env.PREPLINE_487_OUT || '/workspace/share/prepline-487';
+const LIVE = process.env.PREPLINE_487_LIVE === '1';
+const LIVE_BASE = 'https://autoprod-dev.github.io/prepline-trial-preview/';
 const PORT = 8870 + Math.floor(Math.random() * 80);
 const PRIVATE = '/home/box/prototypes/_private/paula-samples-2wk';
 const STRIPPED = '/workspace/share/prepline-rules/stripped';
@@ -75,7 +77,8 @@ function sheetMatchesSec(sheet, sec) {
 }
 
 async function uploadAndExport(page, source, label) {
-  await page.goto('http://127.0.0.1:' + PORT + '/?t=' + Date.now(), { waitUntil: 'domcontentloaded', timeout: 60000 });
+  const startUrl = LIVE ? (LIVE_BASE + '?t=' + Date.now()) : ('http://127.0.0.1:' + PORT + '/?t=' + Date.now());
+  await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(
     () => typeof XLSX !== 'undefined' && window.PreplineUpgrades47 && window.Prepline477 && window.Prepline487,
     null, { timeout: 60000 }
@@ -86,6 +89,9 @@ async function uploadAndExport(page, source, label) {
     p487: window.Prepline487?.VERSION,
   }));
   console.log(label, 'version', ver);
+  if (LIVE && label === 'WE-15.11.26') {
+    await page.screenshot({ path: path.join(OUT, 'screenshots', '01-live-home.png'), fullPage: true });
+  }
   if (!String(ver.meta).includes('4.8.7') || ver.p487 !== '4.8.7') {
     throw new Error(label + ' not on 4.8.7: ' + JSON.stringify(ver));
   }
@@ -294,7 +300,6 @@ print(json.dumps({'label':${JSON.stringify(label)},'ok':ok,'mismatch':len(mism),
 }
 
 async function main() {
-  const LIVE = process.env.PREPLINE_487_LIVE === '1';
   let server = null;
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
@@ -311,7 +316,6 @@ async function main() {
     await route.continue();
   });
 
-  const base = LIVE ? 'https://autoprod-dev.github.io/prepline-trial-preview/' : null;
   if (!LIVE) server = await startServer();
 
   // BEFORE numbers from previous LIVE organised exports if present
@@ -331,9 +335,6 @@ async function main() {
 
   for (const w of WEEKS) {
     if (!fs.existsSync(w.source)) throw new Error('missing ' + w.source);
-    if (LIVE) {
-      await page.goto(base + '?t=' + Date.now(), { waitUntil: 'networkidle', timeout: 90000 });
-    }
     const { outXlsx, preAudit } = await uploadAndExport(page, w.source, w.label);
     const after = auditXlsx(outXlsx, w.label + '-after');
     const paula = paulaColourVsTab(w.target, w.label);
