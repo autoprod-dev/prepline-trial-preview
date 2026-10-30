@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+4.7.8 sort, +4.8.2 sample rules, +4.8.7 Section=tab) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
+/* Prepline 4.7.7 (+4.7.8/4.8.8 sort, +4.8.2 rules, +4.8.7 Section=tab, +4.8.8 smart-chef prep-day groups + pastel) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (blank write-in).
@@ -186,6 +186,99 @@
     return 99;
   }
 
+  /** Weekday number 1=Mon … 7=Sun from a prep label or source-tab prefix. */
+  function weekdayNum(text) {
+    var s = String(text || '').trim();
+    var m = s.match(/^(\d+)\b/);
+    if (m) {
+      var n = parseInt(m[1], 10);
+      if (n >= 1 && n <= 7) return n;
+    }
+    var tok = s.replace(/^\d+\s+/, '').split(/\s+/)[0] || '';
+    var map = {
+      mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2,
+      wed: 3, wednesday: 3, thu: 4, thur: 4, thurs: 4, thursday: 4,
+      fri: 5, friday: 5, sat: 6, saturday: 6, sun: 7, sunday: 7
+    };
+    var k = tok.toLowerCase();
+    if (map[k]) return map[k];
+    for (var key in map) {
+      if (k.indexOf(key) === 0) return map[key];
+    }
+    return 99;
+  }
+
+  function eventNumFromSource(src) {
+    return weekdayNum(src);
+  }
+
+  /** Days before the event that prep falls on (Friday before Tuesday = 4). */
+  function daysBeforeEvent(prepN, eventN) {
+    if (prepN === 99 || eventN === 99) return 0;
+    if (prepN <= eventN) return eventN - prepN;
+    return eventN + 7 - prepN;
+  }
+
+  /**
+   * Actual prep-date sort key (lower = earlier).
+   * '5 Friday' for a '2 TUE' event → previous-week Friday (before Monday).
+   * '5 Friday' for a '6 SAT' event → same-week Friday (near bottom).
+   * When a real event calendar date is known, returns YYYYMMDD of the prep day.
+   */
+  function actualPrepSortKey(prepLab, source, dish, helpers) {
+    var pn = weekdayNum(prepLab);
+    var en = eventNumFromSource(source);
+    var db = daysBeforeEvent(pn, en);
+    if (helpers && typeof helpers.getEventDateStr === 'function' && dish) {
+      try {
+        var ds = helpers.getEventDateStr(dish);
+        if (ds) {
+          var m = String(ds).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+          if (m) {
+            var dd = parseInt(m[1], 10), mm = parseInt(m[2], 10), yy = parseInt(m[3], 10);
+            if (yy < 100) yy += 2000;
+            var dt = new Date(yy, mm - 1, dd);
+            dt.setDate(dt.getDate() - db);
+            return dt.getFullYear() * 10000 + (dt.getMonth() + 1) * 100 + dt.getDate();
+          }
+        }
+      } catch (e) {}
+    }
+    /* Relative: event weekday as anchor; previous-week prep → negative / smaller. */
+    if (en === 99 && pn === 99) return 9999;
+    if (en === 99) return 100 + pn;
+    return en - db;
+  }
+
+  /** Stable colour-group id: same weekday label on different calendar dates → different id. */
+  function prepColourGroupId(prepLab, actualKey) {
+    return String(actualKey) + '|' + String(prepLab || '');
+  }
+
+  /* Distinct pastel fills for Prep day cells (readable when printed). */
+  var PREP_PASTELS = [
+    'FFFFF2CC', /* soft yellow */
+    'FFD9EAD3', /* soft green */
+    'FFCFE2F3', /* soft blue */
+    'FFFCE5CD', /* soft orange */
+    'FFEAD1DC', /* soft pink */
+    'FFD0E0E3', /* soft teal-grey */
+    'FFE8D5F2', /* soft purple */
+    'FFFFE6CC', /* peach */
+    'FFDDEBF7', /* powder blue */
+    'FFE2EFDA', /* mint */
+    'FFF8CBAD', /* apricot */
+    'FFD9D2E9'  /* lavender */
+  ];
+
+  function pastelForGroup(groupId, seenMap) {
+    if (!seenMap[groupId]) {
+      var idx = Object.keys(seenMap).length % PREP_PASTELS.length;
+      seenMap[groupId] = PREP_PASTELS[idx];
+    }
+    return seenMap[groupId];
+  }
+
   function eventDayFromDish(dish, helpers) {
     if (helpers && typeof helpers.getEventDay === 'function') {
       try {
@@ -225,13 +318,27 @@
   function buildPaulaRows(rows, helpers) {
     helpers = helpers || {};
     var list = Array.isArray(rows) ? rows.slice() : [];
+    /* 4.8.8 trial: smart-chef prep days from PreplineBatch (do not port to Paula). */
+    var smartMap = null;
+    if (root.Prepline488 && typeof root.Prepline488.smartPrepDayMap === 'function') {
+      try { smartMap = root.Prepline488.smartPrepDayMap(list, helpers); } catch (e) { smartMap = null; }
+    }
     var out = [];
-    list.forEach(function (r) {
+    list.forEach(function (r, idx) {
       if (!r || !r.task) return;
       var sec = r.section || '';
       var pp = parsePerPax(r, helpers);
       var src = sourceTab(r, helpers);
-      var prepLab = prepDayLabel(r.day, helpers);
+      var rawDay = r.day;
+      var smartInfo = null;
+      if (smartMap) {
+        var sp = root.Prepline488.smartPrepDayForRow(r, idx, smartMap);
+        if (sp && sp.prepDay) {
+          rawDay = sp.prepDay;
+          smartInfo = sp.info;
+        }
+      }
+      var prepLab = prepDayLabel(rawDay, helpers);
       var dishName = (helpers && typeof helpers.cleanDishName === 'function')
         ? (helpers.cleanDishName(r.dish) || r.dish || '')
         : (r.dish || '');
@@ -256,21 +363,42 @@
         itemNorm: String(r.task || '').toLowerCase().replace(/\s+/g, ' ').trim(),
         dish: r.dish || '',
         dishKey: dishKey,
-        prepSort: prepDaySortKey(prepLab, r.day),
+        prepSort: prepDaySortKey(prepLab, rawDay),
         eventSort: eventDateSortKey(r.dish, src, helpers),
-        colourSection: sec || ''
+        actualPrep: actualPrepSortKey(prepLab, src, r.dish, helpers),
+        colourSection: sec || '',
+        smartCovers: smartInfo && smartInfo.covers ? smartInfo.covers : '',
+        smartBatchKey: smartInfo && smartInfo.batchKey ? smartInfo.batchKey : ''
       });
     });
-    /* Gerard 30 Oct: auto A–Z on download — dish (Source tab), prep day chrono, event/function date chrono, item A–Z. */
-    out.sort(function (a, b) {
-      if (a.dishKey < b.dishKey) return -1;
-      if (a.dishKey > b.dishKey) return 1;
-      if (a.prepSort !== b.prepSort) return a.prepSort - b.prepSort;
-      if (a.eventSort !== b.eventSort) return a.eventSort - b.eventSort;
-      if (a.itemNorm < b.itemNorm) return -1;
-      if (a.itemNorm > b.itemNorm) return 1;
-      return 0;
+    out.forEach(function (row) {
+      row.prepColourId = prepColourGroupId(row.prepDay, row.actualPrep);
     });
+    /* Apply organised sheet sort/filter state when provided (Excel-style menus). */
+    var sheetState = (helpers && helpers.organisedSheetState) || null;
+    var use488 = root.Prepline488 && typeof root.Prepline488.applySheetState === 'function';
+    if (helpers && helpers.organisedSheetState === false) {
+      /* explicit opt-out */
+      use488 = false;
+    }
+    if (use488) {
+      var st = sheetState || (typeof root.Prepline488.getSheetState === 'function' ? root.Prepline488.getSheetState() : null);
+      out = root.Prepline488.applySheetState(out, st);
+    } else if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
+      /* 4.8.8 smart chef: prep-date block → Item A–Z → Source A–Z */
+      out.sort(root.Prepline488.smartChefSort);
+    } else {
+      out.sort(function (a, b) {
+        if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
+        if (a.itemNorm < b.itemNorm) return -1;
+        if (a.itemNorm > b.itemNorm) return 1;
+        var sa = String(a.sourceTab || '').toLowerCase();
+        var sb = String(b.sourceTab || '').toLowerCase();
+        if (sa < sb) return -1;
+        if (sa > sb) return 1;
+        return 0;
+      });
+    }
     return out;
   }
 
@@ -316,6 +444,7 @@
   }
 
   function fillSheetExcelJS(ws, sheetTitle, rows) {
+    var colourMap = {};
     ws.mergeCells(1, 1, 1, 10);
     var title = ws.getCell(1, 1);
     title.value = sheetTitle;
@@ -349,6 +478,11 @@
       row.getCell(9).value = r.sourceTab || '';
       row.getCell(10).value = r.staff || '';
       for (var c = 1; c <= 10; c++) styleDataCell(row.getCell(c));
+      /* Pastel Prep day fill — distinct colour per actual prep-date group. */
+      if (!colourMap) colourMap = {};
+      var gid = r.prepColourId || prepColourGroupId(r.prepDay, r.actualPrep);
+      var pastel = pastelForGroup(gid, colourMap);
+      row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pastel } };
       var len = String(r.item || '').length;
       var h = 18;
       if (len > 45) h = 36;
@@ -360,9 +494,10 @@
     COL_WIDTHS.forEach(function (w, i) {
       ws.getColumn(i + 1).width = w;
     });
+    var lastRow = Math.max(2, rows.length + 2);
     ws.autoFilter = {
       from: { row: 2, column: 1 },
-      to: { row: 2, column: 10 }
+      to: { row: lastRow, column: 10 }
     };
   }
 
@@ -526,9 +661,14 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.7',
+    VERSION: '4.8.8',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
-    HEADERS: HEADERS
+    HEADERS: HEADERS,
+    actualPrepSortKey: actualPrepSortKey,
+    prepColourGroupId: prepColourGroupId,
+    pastelForGroup: pastelForGroup,
+    PREP_PASTELS: PREP_PASTELS,
+    weekdayNum: weekdayNum
   };
 })(typeof window !== 'undefined' ? window : globalThis);

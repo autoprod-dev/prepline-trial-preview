@@ -1,6 +1,8 @@
-/* Prepline 4.8.6 — Calendar-app Week/Month/Year grids + hide Team ops (trial).
+/* Prepline 4.8.6 / 4.8.8 — Calendar-app Week/Month/Year grids + hide Team ops (trial).
  * Week/Month/Year look like Google/Outlook (day columns, date cells, coloured chips).
- * Print CSS makes each span look like a paper calendar.
+ * Print CSS makes each span look like a paper calendar (print-color-adjust: exact).
+ * 4.8.8: Print calendar was blank because upgrades-47 station CSS hid body * on every
+ * print; station CSS is now scoped, and this file forces #u486Cal visible in print.
  * Team ops (Roster / Dispatch / Morning brief / Swap) hidden for now; code kept.
  */
 (function (root) {
@@ -433,9 +435,17 @@
       if (t.getAttribute('data-cal-print')) {
         try {
           document.body.classList.add('u486-cal-print');
+          var clear = function () {
+            document.body.classList.remove('u486-cal-print');
+            window.removeEventListener('afterprint', clear);
+          };
+          window.addEventListener('afterprint', clear);
           window.print();
-          setTimeout(function () { document.body.classList.remove('u486-cal-print'); }, 800);
-        } catch (e) {}
+          /* Fallback if afterprint never fires (some WebViews). */
+          setTimeout(clear, 2000);
+        } catch (e) {
+          document.body.classList.remove('u486-cal-print');
+        }
         return;
       }
       var span = t.getAttribute('data-cal-span');
@@ -529,17 +539,39 @@
       '  .u486-monthbody{grid-template-columns:repeat(7,minmax(0,1fr));}',
       '  .u486-mcell{min-height:64px;}',
       '}',
-      /* Paper-calendar print */
+      /* Paper-calendar print — force calendar visible (station CSS used to blank it). */
       '@media print{',
+      '  body.u486-cal-print{-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
       '  body.u486-cal-print .no-print,body.u486-cal-print .u480-groups,body.u486-cal-print .u47-plan-toggle,',
-      '  body.u486-cal-print #dbPanel,body.u486-cal-print .u47-progress,body.u486-cal-print #u47Progress{display:none!important;}',
-      '  body.u486-cal-print #resultsArea,*{box-shadow:none!important;}',
+      '  body.u486-cal-print #dbPanel,body.u486-cal-print .u47-progress,body.u486-cal-print #u47Progress,',
+      '  body.u486-cal-print .shell-masthead,body.u486-cal-print .masthead,body.u486-cal-print #proPanel,',
+      '  body.u486-cal-print #weeklyPanel,body.u486-cal-print #paxPanelWrap,body.u486-cal-print #staffingPanelWrap,',
+      '  body.u486-cal-print #poPanel,body.u486-cal-print .yield-panel,body.u486-cal-print #masterSummaryPanel,',
+      '  body.u486-cal-print .version-switch,body.u486-cal-print .search-bar,body.u486-cal-print .print-order-ctl,',
+      '  body.u486-cal-print footer{display:none!important;}',
+      '  body.u486-cal-print #resultsArea,body.u486-cal-print #resultsArea *{box-shadow:none!important;}',
+      '  body.u486-cal-print #u486Cal,body.u486-cal-print #u486Cal *{visibility:visible!important;}',
+      '  body.u486-cal-print #u486Cal{display:block!important;position:relative;left:auto;top:auto;width:100%;}',
+      '  body.u486-cal-print .u486-toolbar.no-print{display:flex!important;visibility:visible!important;}',
+      '  body.u486-cal-print .u486-toolbar .u486-spans,body.u486-cal-print .u486-toolbar .u486-range{display:inline-flex!important;visibility:visible!important;}',
+      '  body.u486-cal-print .u486-toolbar .u486-printbtn,body.u486-cal-print .u486-toolbar .u486-navbtn{display:none!important;}',
+      '  body.u486-cal-print .u486-legend{display:flex!important;visibility:visible!important;}',
+      '  body.u486-cal-print .u486-weekgrid,body.u486-cal-print .u486-monthgrid,body.u486-cal-print .u486-yeargrid,',
+      '  body.u486-cal-print .u486-weekhead,body.u486-cal-print .u486-weekbody,body.u486-cal-print .u486-monthhead,',
+      '  body.u486-cal-print .u486-monthbody,body.u486-cal-print .u486-yminimonth{display:grid!important;visibility:visible!important;}',
+      '  body.u486-cal-print .u486-weekgrid,body.u486-cal-print .u486-monthgrid{display:block!important;}',
+      '  body.u486-cal-print .u486-weekhead,body.u486-cal-print .u486-weekbody,',
+      '  body.u486-cal-print .u486-monthhead,body.u486-cal-print .u486-monthbody{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;}',
+      '  body.u486-cal-print .u486-yeargrid{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))!important;}',
       '  .u486-cal{break-inside:avoid;}',
       '  .u486-weekgrid,.u486-monthgrid,.u486-yminimonth{border-color:#333!important;}',
-      '  .u486-chip{print-color-adjust:exact;-webkit-print-color-adjust:exact;}',
+      '  .u486-chip,.u486-leg i,.u486-yday.has,.u486-colhead.today .u486-dom,.u486-daycol.today,.u486-mcell.today{',
+      '    -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}',
       '  .u486-daycol{min-height:160px;}',
       '  .u486-mcell{min-height:90px;}',
-      '  .u486-toolbar .u486-printbtn,.u486-toolbar .u486-navbtn{display:none!important;}',
+      '  /* Phone media query must not collapse the week grid on paper */',
+      '  body.u486-cal-print .u486-weekbody{grid-template-columns:repeat(7,minmax(0,1fr))!important;}',
+      '  body.u486-cal-print .u486-weekhead{display:grid!important;}',
       '}'
     ].join('');
   }

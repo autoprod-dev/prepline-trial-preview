@@ -775,13 +775,15 @@
     return html;
   }
   function stationPrintCss() {
+    /* Scoped to body.u47-station-print ONLY — an unscoped body *{visibility:hidden}
+     * blanked every other printout (calendar, plan PDF, organised, etc.). */
     return [
       '@media print{',
-      '  body *{visibility:hidden;}',
-      '  .u47-stations,.u47-stations *{visibility:visible;}',
-      '  .u47-stations{position:absolute;left:0;top:0;width:100%;}',
-      '  .u47-page-break{page-break-after:always;}',
-      '  .noprint,.no-print{display:none!important;}',
+      '  body.u47-station-print *{visibility:hidden;}',
+      '  body.u47-station-print .u47-stations,body.u47-station-print .u47-stations *{visibility:visible;}',
+      '  body.u47-station-print .u47-stations{position:absolute;left:0;top:0;width:100%;}',
+      '  body.u47-station-print .u47-page-break{page-break-after:always;}',
+      '  body.u47-station-print .noprint,body.u47-station-print .no-print{display:none!important;}',
       '}',
       '.u47-station-sheet{font:12px/1.35 Arial,Helvetica,sans-serif;color:#111;padding:12mm;max-width:210mm;margin:0 auto 16px;background:#fff;border:1px solid #ddd;}',
       '.u47-station-sheet h2{margin:4px 0 8px;font-size:18px;}',
