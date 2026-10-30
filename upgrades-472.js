@@ -443,18 +443,9 @@
 
   /* ---------- Shopping week roll-up (extends order-from-batches) ---------- */
   function weekShoppingHtml(rows, deps, helpers) {
-    helpers = helpers || {};
-    var order = U.buildOrderFromBatches ? U.buildOrderFromBatches(rows, deps, helpers) : [];
-    var html = '<div class="panel u47-shop" id="u47Shop"><h3 style="margin:0 0 6px;">Shopping list · full week</h3>';
-    html += '<div class="meta no-print">Rolled up from batches across all dishes. <button type="button" class="secondary" onclick="window.print()">Print</button></div>';
-    html += '<div class="section-table-wrap"><table><thead><tr><th>Ingredient</th><th>Total</th><th>Unit</th><th>Latest delivery</th><th>Used in</th></tr></thead><tbody>';
-    (order || []).forEach(function (o) {
-      html += '<tr><td>' + esc(o.name || o.ingredient || '') + '</td><td>' + esc(o.total != null ? o.total : '—') +
-        '</td><td>' + esc(o.unit || '') + '</td><td>' + esc(o.delivery || o.latestDelivery || '—') +
-        '</td><td>' + esc((o.usedIn || o.dishes || []).join ? (o.usedIn || o.dishes).join(', ') : '') + '</td></tr>';
-    });
-    html += '</tbody></table></div></div>';
-    return html;
+    /* 4.7.3: weekly shopping-list UI removed per product decision. Keep 4.7.0 order list only. */
+    return '<div class="panel u47-shop" id="u47Shop"><h3 style="margin:0 0 6px;">Shopping list removed</h3>' +
+      '<p class="meta">Use the original <b>Order sheet</b> view (unchanged). This weekly shopping roll-up is no longer offered.</p></div>';
   }
 
   /* ---------- History panel ---------- */

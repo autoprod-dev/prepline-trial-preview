@@ -942,8 +942,11 @@
   /* ---------- 10) Organised rows (shared screen + export) ---------- */
   var ORGANISED_HEADERS = [
     'Function name', 'Dish name', 'Pax / packs', 'Prep day', 'Event day',
-    'Item name', 'Section', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated', 'Notes'
+    'Item name', 'Section', 'Qty each', 'Qty total needed', 'Batch no.', 'Staff allocated', 'Prep min', 'Notes'
   ];
+  var PREP_MIN_KEY = 'prepline.organised.prepMin.v1';
+  function prepMinMap() { return lsGet(PREP_MIN_KEY, {}) || {}; }
+  function savePrepMinMap(m) { lsSet(PREP_MIN_KEY, m || {}); }
   var ORDER_KEY = 'prepline.organised.order.v1';
   var ITEM_VIEW_KEY = 'prepline.organised.itemView.v1';
 
@@ -1069,6 +1072,8 @@
       var staff = (ov[rk] != null && ov[rk] !== '') ? ov[rk]
         : (staffBySection[g.section] || helpers.defaultStaff || 'Unallocated');
       var noteVal = (notesMap()[rk] != null) ? String(notesMap()[rk]) : '';
+      var pmRaw = prepMinMap()[rk];
+      var prepMin = (pmRaw != null && pmRaw !== '') ? String(pmRaw) : '';
       var cells = {
         functionName: functionName || '—',
         dishName: dishName || '—',
@@ -1081,9 +1086,11 @@
         qtyTotal: qtyTotal || '—',
         batchNo: String(batchNo),
         staff: staff || 'Unallocated',
+        prepMin: prepMin, /* blank until set */
         notes: noteVal === '' ? '—' : noteVal
       };
       Object.keys(cells).forEach(function (k) {
+        if (k === 'prepMin') return; /* blank until set — never force em-dash */
         if (cells[k] == null || cells[k] === '') cells[k] = '—';
       });
       out.push({
@@ -1091,7 +1098,8 @@
         cells: cells,
         values: [
           cells.functionName, cells.dishName, cells.paxPacks, cells.prepDay, cells.eventDay,
-          cells.itemName, cells.section, cells.qtyEach, cells.qtyTotal, cells.batchNo, cells.staff, cells.notes
+          cells.itemName, cells.section, cells.qtyEach, cells.qtyTotal, cells.batchNo, cells.staff,
+          cells.prepMin === '' ? '' : cells.prepMin, cells.notes
         ],
         section: sectionName || '—',
         sectionFill: sectionColour(sectionName),
@@ -1219,6 +1227,7 @@
         { key: 'qtyTotal', width: 16 },
         { key: 'batchNo', width: 10 },
         { key: 'staff', width: 16 },
+        { key: 'prepMin', width: 10 },
         { key: 'notes', width: 24 }
       ];
       var head = ws.addRow(headers);
@@ -1288,7 +1297,7 @@
       }
       ws['!cols'] = [
         { wch: 28 }, { wch: 28 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
-        { wch: 32 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 24 }
+        { wch: 32 }, { wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 24 }
       ];
       var lastCol = XLSX.utils.encode_col(ncols - 1);
       ws['!autofilter'] = { ref: 'A1:' + lastCol + Math.max(1, aoa.length) };
@@ -1716,6 +1725,8 @@
     sectionColour: sectionColour,
     notesMap: notesMap,
     saveNotesMap: saveNotesMap,
+    prepMinMap: prepMinMap,
+    savePrepMinMap: savePrepMinMap,
     staffOverrideMap: staffOverrideMap,
     saveStaffOverrideMap: saveStaffOverrideMap,
     pushHistory: pushHistory,

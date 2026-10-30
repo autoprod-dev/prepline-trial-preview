@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.2-trial">
+<meta name="prepline-version" content="4.7.3-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -87,6 +87,7 @@ var LICENSE_CONFIG = {
 <script src="batching.js"></script>
 <script src="upgrades-47.js"></script>
 <script src="upgrades-472.js"></script>
+<script src="upgrades-473.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -926,7 +927,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.2</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.3</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -2311,7 +2312,7 @@ function prepStartDay(eventDay, r){
   return prepStartDayInfo(eventDay, r).day;
 }
 
-// 4.7.2: balance daily prep load (Mon–Sat), never Sunday; respect lead windows roughly by not moving past event day.
+// 4.7.3: balance daily prep load (Mon–Sat), never Sunday; respect lead windows roughly by not moving past event day.
 function balancePrepLoad(rows, opts){
   opts = opts || {};
   const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -5273,13 +5274,16 @@ function render(){
     ${viewMode==='dish' ? `<button class="secondary" onclick="exportDishesToXlsx()" type="button" data-export="exportDishesToXlsx" title="By dish Excel">📊 Excel · By dish</button>`
       : viewMode==='section' ? `<button class="secondary" onclick="exportSectionsToXlsx()" type="button" data-export="exportSectionsToXlsx" title="By section Excel">📊 Excel · By section</button>`
       : viewMode==='priority' || viewMode==='week' ? `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx" title="By day Excel">📊 Excel · By day</button>`
-      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' || viewMode==='shop47' ? ''
+      : viewMode==='order' || viewMode==='order47' || viewMode==='recipes' || viewMode==='voice' || viewMode==='item' ? ''
       : `<button class="secondary" onclick="exportDaysToXlsx()" type="button" data-export="exportDaysToXlsx">📊 Export to Excel</button>`}
     ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Yellow header, fixed columns, freeze top row">📊 Organised export (yellow header)</button>
     <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
     <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>
-    <button class="secondary" onclick="setView('shop47')" type="button" id="shop47ViewBtn">Shopping (week)</button>
+    <button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
+    <button class="secondary" onclick="setView('dispatch47')" type="button" id="dispatch47ViewBtn">Dispatch</button>
+    <button class="secondary" onclick="setView('brief47')" type="button" id="brief47ViewBtn">Morning brief</button>
+    <button class="secondary" onclick="setView('swap47')" type="button" id="swap47ViewBtn">Swap</button>
   </div>
   <div class="row no-print print-row" style="margin-bottom:20px; gap:8px; align-items:center;">
     <button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
@@ -5306,7 +5310,11 @@ function render(){
     : viewMode==='order47' ? renderOrder47()
     : viewMode==='recipes' ? renderRecipes47()
     : viewMode==='voice' ? renderVoice47()
-    : viewMode==='item' ? renderByItem47() : viewMode==='shop47' ? renderShop47()
+    : viewMode==='item' ? renderByItem47()
+    : viewMode==='roster47' ? renderRoster47()
+    : viewMode==='dispatch47' ? renderDispatch47()
+    : viewMode==='brief47' ? renderBrief47()
+    : viewMode==='swap47' ? renderSwap47()
     : (viewMode==='orig' && Object.keys(originalPageImages).length ? renderOriginalsTab() : renderByPriority());
   // v3.4.4: re-rendering after a manual edit keeps the page where it was and keeps focus
   // on the control that was just changed (it used to jump back to the top).
@@ -8569,10 +8577,24 @@ function shareOrganised47(){
     .catch(e=>setStatus('Share failed: '+(e&&e.message||e), 'err'));
 }
 function renderShop47(){
-  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.weekShoppingHtml) return '<div class="panel">Shopping list unavailable</div>';
-  return PreplineUpgrades47.weekShoppingHtml(viewRows(), batchDeps(), {
-    escapeHtml, applyYield: (n,g)=>PreplineUpgrades47.applyYieldToQty(n, g)
-  });
+  /* 4.7.3: shopping list removed — keep 4.7.0 order sheet only */
+  return '<div class="panel"><b>Shopping list removed</b> — use <button type="button" class="secondary" onclick="setView(\'order\')">Order sheet</button> (unchanged from 4.7.0).</div>';
+}
+function renderRoster47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.rosterHtml) return '<div class="panel">Roster unavailable</div>';
+  return PreplineUpgrades47.rosterHtml(viewRows(), batchDeps(), { cleanDishName, escapeHtml, paxByDish, defaultStaff:'Unallocated', staffBySection: Object.fromEntries((typeof SECTIONS!=='undefined'?SECTIONS:[]).map(s=>[s, leaderBySection[s]||'Unallocated'])) });
+}
+function renderDispatch47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.dispatchTrackerHtml) return '<div class="panel">Dispatch unavailable</div>';
+  return PreplineUpgrades47.dispatchTrackerHtml(viewRows(), batchDeps(), { cleanDishName, escapeHtml, paxByDish, defaultStaff:'Unallocated', todayName: PreplineUpgrades47.todayWeekday && PreplineUpgrades47.todayWeekday() });
+}
+function renderBrief47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.morningBriefHtml) return '<div class="panel">Morning brief unavailable</div>';
+  return PreplineUpgrades47.morningBriefHtml(viewRows(), batchDeps(), { cleanDishName, escapeHtml, paxByDish, defaultStaff:'Unallocated', todayName: PreplineUpgrades47.todayWeekday && PreplineUpgrades47.todayWeekday() });
+}
+function renderSwap47(){
+  if (!window.PreplineUpgrades47 || !PreplineUpgrades47.swapToolHtml) return '<div class="panel">Swap tool unavailable</div>';
+  return PreplineUpgrades47.swapToolHtml(viewRows(), batchDeps(), { cleanDishName, escapeHtml, paxByDish, defaultStaff:'Unallocated' });
 }
 function exportOrganisedXlsx47(){
   if (!window.PreplineUpgrades47){ setStatus('Organised export unavailable', 'err'); return; }
@@ -8587,12 +8609,26 @@ function exportOrganisedXlsx47(){
     else done(res);
   }catch(e){ setStatus('Organised export failed: '+(e&&e.message||e), 'err'); }
 }
+
+function autoAllocateOnLoad473(){
+  try{
+    if (!window.PreplineUpgrades47 || !PreplineUpgrades47.autoAllocateStaff) return;
+    if (window._prepline473AllocBusy) return;
+    window._prepline473AllocBusy = true;
+    const staffBySection = {};
+    (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || ''; });
+    PreplineUpgrades47.autoAllocateStaff(viewRows(), batchDeps(), { cleanDishName, paxByDish, defaultStaff:'Unallocated', staffBySection });
+    setTimeout(function(){ window._prepline473AllocBusy = false; }, 50);
+  }catch(e){ window._prepline473AllocBusy = false; console.warn('autoAlloc', e); }
+}
+
 function bindUpgrades47(){
   if (!window.PreplineUpgrades47) return;
   const area = document.getElementById('resultsArea');
   PreplineUpgrades47.bindTickControls(area, ()=>render());
   PreplineUpgrades47.bindRecipeLib(document.getElementById('u47Recipes'), ()=>render());
   try{ PreplineUpgrades47.bindByItemView(document.getElementById('u47ItemView'), ()=>render()); }catch(e){}
+  try{ if (PreplineUpgrades47.bind473Views) PreplineUpgrades47.bind473Views(()=>render()); }catch(e){}
   PreplineUpgrades47.bindVoice(document.getElementById('u47Voice'), {
     onAdd: (p)=>{
       const dish = 'Voice add';
@@ -8637,6 +8673,7 @@ function bindUpgrades47(){
   if (pr) pr.addEventListener('click', ()=>window.print());
 }
 function afterRowsLoaded47(meta){
+  try{ autoAllocateOnLoad473(); }catch(e){}
   if (!window.PreplineUpgrades47) return;
   try{
     PreplineUpgrades47.learnSectionsFromRows(ROWS);
@@ -8651,8 +8688,11 @@ function afterRowsLoaded47(meta){
 window.__preplineBridge = {
   getRows: () => ROWS,
   setRows: (rows) => { ROWS = rows; },
-  clearList: () => { ROWS = []; paxByDish = {}; eventDateByDish = {}; originalPageImages = {}; methodCrops = {}; },
+  clearList: () => { ROWS = []; paxByDish = {}; eventDateByDish = {}; eventDayOverride = {}; originalPageImages = {}; methodCrops = {}; },
   setPax: (d, n) => { paxByDish[d] = n; },
+  setEventDay: (d, v) => { eventDayOverride[d] = v; },
+  setLeader: (sec, name) => { leaderBySection[sec] = name; },
+  setView: (v) => { if (typeof setView==='function') setView(v); },
   setDate: (d, v) => { eventDateByDish[d] = v; },
   getPax: () => paxByDish,
   getDates: () => eventDateByDish,
