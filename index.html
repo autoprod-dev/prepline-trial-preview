@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.5-trial">
+<meta name="prepline-version" content="4.8.6-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -96,6 +96,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-481.js"></script>
 <script src="upgrades-482.js"></script>
 <script src="upgrades-485.js"></script>
+<script src="upgrades-486.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -935,7 +936,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.5</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.6</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5336,10 +5337,12 @@ function render(){
   const u480PrintBtns = `<button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
     <button class="secondary" onclick="printAllDays()" type="button">🖨️ Print all prep days (one page complete)</button>
     ${printMethodToggleHtml()}`;
-  const u480TeamBtns = `<button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
+  /* 4.8.6: Team ops (Roster/Dispatch/Morning brief/Swap) hidden — restore by setting SHOW_TEAM_OPS true */
+  const SHOW_TEAM_OPS = false;
+  const u480TeamBtns = SHOW_TEAM_OPS ? `<button class="secondary" onclick="setView('roster47')" type="button" id="roster47ViewBtn">Roster</button>
     <button class="secondary" onclick="setView('dispatch47')" type="button" id="dispatch47ViewBtn">Dispatch</button>
     <button class="secondary" onclick="setView('brief47')" type="button" id="brief47ViewBtn">Morning brief</button>
-    <button class="secondary" onclick="setView('swap47')" type="button" id="swap47ViewBtn">Swap</button>`;
+    <button class="secondary" onclick="setView('swap47')" type="button" id="swap47ViewBtn">Swap</button>` : '';
   const u480Grouped = (window.Prepline480 && Prepline480.groupsHtml)
     ? Prepline480.groupsHtml({ moreViews: u480MoreViews, exportBtns: u480ExportBtns, printBtns: u480PrintBtns, teamBtns: u480TeamBtns })
     : `<div class="viewtoggle no-print" style="margin-top:8px;">${u480MoreViews}</div><div class="row no-print" style="margin-bottom:10px;gap:8px;flex-wrap:wrap;">${u480ExportBtns}${u480TeamBtns}</div><div class="row no-print print-row" style="margin-bottom:20px;gap:8px;align-items:center;">${u480PrintBtns}</div>`;
