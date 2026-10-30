@@ -663,6 +663,8 @@
     ensureLibs: ensureLibs,
     ingestBuffer: ingestBuffer,
     getSnapshot: function () { return editor ? getSnapshot() : null; },
+    getPendingBytes: function () { return pending && pending.bytes ? pending.bytes : null; },
+    getPending: function () { return pending; },
     _getEditor: function () { return editor; }
   };
 
