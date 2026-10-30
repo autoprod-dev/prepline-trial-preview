@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.7.7-trial">
+<meta name="prepline-version" content="4.7.8-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -90,6 +90,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-473.js"></script>
 <script src="upgrades-476.js"></script>
 <script src="upgrades-477.js"></script>
+<script src="upgrades-478.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -929,7 +930,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.7</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.7.8</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -8652,9 +8653,11 @@ function exportOrganisedXlsx47(){
       allergenText: typeof allergenText==='function' ? allergenText : undefined,
       dayLabel: typeof dayLabel==='function' ? dayLabel : undefined,
       srcName: typeof srcName==='function' ? srcName : undefined,
-      exportPerPax: typeof exportPerPax==='function' ? exportPerPax : undefined
+      exportPerPax: typeof exportPerPax==='function' ? exportPerPax : undefined,
+      getEventDay: typeof getEventDay==='function' ? getEventDay : undefined,
+      getEventDateStr: typeof getEventDateStr==='function' ? getEventDateStr : undefined
     });
-    const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows · Paula layout (section tabs, yellow header'+(r&&r.layout? ', '+r.layout : '')+') · '+(r&&r.engine||'xlsx')+'.', 'ok');
+    const done = (r) => setStatus('Organised export: '+(r&&r.rows)+' rows · Paula layout (section tabs, yellow header, A–Z by dish/prep/event'+(r&&r.layout? ', '+r.layout : '')+') · '+(r&&r.engine||'xlsx')+'.', 'ok');
     if (res && typeof res.then === 'function') res.then(done).catch(e=>setStatus('Organised export failed: '+(e&&e.message||e), 'err'));
     else done(res);
   }catch(e){ setStatus('Organised export failed: '+(e&&e.message||e), 'err'); }

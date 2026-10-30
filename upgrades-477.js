@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
+/* Prepline 4.7.7 (+4.7.8 sort) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (allergen suggestions).
@@ -29,7 +29,7 @@
     'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED'
   ];
 
-  var COL_WIDTHS = [38.75, 16.75, 8.75, 14.75, 13.75, 10, 24.75, 12.75, 34.75, 30.75];
+  var COL_WIDTHS = [38.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 34.75, 30.75];
 
   function sheetForSection(sec) {
     var s = String(sec || '').trim();
@@ -37,6 +37,53 @@
       if (PAULA_TABS[i].sections.indexOf(s) >= 0) return PAULA_TABS[i].sheet;
     }
     return OTHER_SHEET;
+  }
+
+  /* Paula places rows on tabs by what the item is, not only by the colour-legend Section.
+   * Section column stays as classified; sheet/tab follows these chef overrides.
+   * BAT/PO # is always blank (handwritten batch numbers) — never filled from upload.
+   */
+  function sheetForItem(item, sec) {
+    var raw = String(item || '');
+    /* Classify on the dish/item head (text before the first " / " method step) so
+     * words buried in method notes (Jus, Oil, Cream) do not steal the tab. */
+    var head = raw.split(/\s+\/\s+/)[0];
+    var t = head.toLowerCase();
+    var full = raw.toLowerCase();
+    /* 1) Sauces / purees / gels / dressings / ragu — head only. */
+    if (/\b(jus|puree|purée|ponzu|dressing|romesco|aioli|vinaigrette|chimichurri|salsa|ragu|rag[uù])\b/.test(t)
+        || /\b(cashew\s*cream|flora\s*cream|cream\s*sauce|umami\s*cream|cauliflower\s*cream)\b/.test(t)
+        || /\bsauce\b/.test(t)
+        || /(?:^|\s)cream\s*$/.test(t.trim())
+        || /\bgel\b/.test(t)
+        || /^(butter|cream)$/.test(t.trim())) {
+      return 'Sauce, Purees and Gels';
+    }
+    /* 2) Garnishes — head: roe, soils, pickles, microherbs, oils-as-product, tendrils, fine herbs. */
+    if (/\b(croutons?|fennel\s*seed|burrata|raisin|microherbs?|micro\s*herbs?|powder|pickled|tapenade|pesto|roe|finger\s*lime|kibbled|ma[iî]tre)\b/.test(t)
+        || /\b(soil|dukkah|gremolata|tendrils?)\b/.test(t)
+        || /\b(fine\s*dic(?:ed)?|chopped|chiffon|pluck(?:ed)?|picked)\b/.test(t)
+        || /\boil\b/.test(t)
+        || /maître\s*d/.test(t)) {
+      return 'Garnishes, Herbs, Powders, Oils';
+    }
+    /* 3) Proteins — head: meat/seafood + cigar/croquette. */
+    if (/\b(prawn|shrimp|lobster|crab|barramundi|barra|salmon|cod|tuna|swordfish|snapper|whiting|flathead|mackerel|trout)\b/.test(t)
+        || /\b(beef|eye\s*fillet|tenderloin|sirloin|scotch|lamb|pork|veal|duck|chicken|turkey|quail|kangaroo|venison|wagyu)\b/.test(t)
+        || /\b(cigar|croquettes?)\b/.test(t)) {
+      return 'Proteins';
+    }
+    /* 4) Starch staples — head. */
+    if (/\b(mash|pav[eé]|terrine|parfait|wellington|duxelle|puff\s*pastry|potato\s+and\s+leek|dairy\s*free\s*mash|smoked\s*mash)\b/.test(t)) {
+      return 'Starch';
+    }
+    /* 5) Vegetables — head (peas, radish, eggplant, remoulade, mushrooms). */
+    if (/\b(asparagus|lettuce|onion|carrot|leek|zucchini|cucumber|chard|broccolini|mushroom|shimeji|warrigal|karkalla|samphire|blite|seablight|sea\s*blite|pencil\s*leek)\b/.test(t)
+        || /\b(peas?|radish|celeriac\s*remoulade|remoulade|eggplant)\b/.test(t)
+        || /\bbaby\s*gem\b/.test(t)) {
+      return 'Vegetables';
+    }
+    return sheetForSection(sec);
   }
 
   function prepDayLabel(day, helpers) {
@@ -100,6 +147,57 @@
     return '';
   }
 
+  function prepDaySortKey(label, rawDay) {
+    var s = String(label || '').trim();
+    var m = s.match(/^(\d+)\b/);
+    if (m) return parseInt(m[1], 10);
+    var d = String(rawDay || s).trim();
+    d = d.replace(/^\d+\s+/, '');
+    var i = WEEKDAYS.indexOf(d);
+    if (i >= 0) return i + 1;
+    var lower = d.toLowerCase();
+    for (var wi = 0; wi < WEEKDAYS.length; wi++) {
+      if (WEEKDAYS[wi].toLowerCase() === lower) return wi + 1;
+    }
+    return 99;
+  }
+
+  function eventDayFromDish(dish, helpers) {
+    if (helpers && typeof helpers.getEventDay === 'function') {
+      try {
+        var ed = helpers.getEventDay(dish);
+        if (ed) return String(ed);
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function eventDateSortKey(dish, source, helpers) {
+    /* Prefer real calendar date dd/mm/yyyy → YYYYMMDD; else event weekday; else leading N from source tab. */
+    if (helpers && typeof helpers.getEventDateStr === 'function') {
+      try {
+        var ds = helpers.getEventDateStr(dish);
+        if (ds) {
+          var m = String(ds).trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+          if (m) {
+            var dd = parseInt(m[1], 10), mm = parseInt(m[2], 10), yy = parseInt(m[3], 10);
+            if (yy < 100) yy += 2000;
+            return yy * 10000 + mm * 100 + dd;
+          }
+        }
+      } catch (e) {}
+    }
+    var ed = eventDayFromDish(dish, helpers);
+    if (ed) {
+      var i = WEEKDAYS.indexOf(ed);
+      if (i >= 0) return 1000 + i;
+    }
+    var src = String(source || '');
+    var nm = src.match(/^(\d+)\b/);
+    if (nm) return 2000 + parseInt(nm[1], 10);
+    return 9999;
+  }
+
   function buildPaulaRows(rows, helpers) {
     helpers = helpers || {};
     var list = Array.isArray(rows) ? rows.slice() : [];
@@ -108,6 +206,13 @@
       if (!r || !r.task) return;
       var sec = r.section || '';
       var pp = parsePerPax(r, helpers);
+      var src = sourceTab(r, helpers);
+      var prepLab = prepDayLabel(r.day, helpers);
+      var dishName = (helpers && typeof helpers.cleanDishName === 'function')
+        ? (helpers.cleanDishName(r.dish) || r.dish || '')
+        : (r.dish || '');
+      /* Dish key for A–Z: prefer Source tab (Paula's dish label), fall back to cleaned dish. */
+      var dishKey = String(src || dishName || '').toLowerCase().replace(/\s+/g, ' ').trim();
       out.push({
         item: r.task,
         qtyPerPax: pp.n,
@@ -115,21 +220,27 @@
         pax: paxFor(r, helpers),
         fixedTotal: pp.fixedTotal,
         nonNumeric: !!pp.nonNumeric,
-        batPo: '',
+        batPo: '', /* blank write-in for chefs — never filled from upload */
         section: sec || '—',
-        prepDay: prepDayLabel(r.day, helpers),
-        sourceTab: sourceTab(r, helpers),
+        prepDay: prepLab,
+        sourceTab: src,
         staff: staffAllocated(r, helpers),
-        sheet: sheetForSection(sec),
+        sheet: sheetForItem(r.task, sec),
         itemNorm: String(r.task || '').toLowerCase().replace(/\s+/g, ' ').trim(),
-        dish: r.dish || ''
+        dish: r.dish || '',
+        dishKey: dishKey,
+        prepSort: prepDaySortKey(prepLab, r.day),
+        eventSort: eventDateSortKey(r.dish, src, helpers)
       });
     });
+    /* Gerard 30 Oct: auto A–Z on download — dish (Source tab), prep day chrono, event/function date chrono, item A–Z. */
     out.sort(function (a, b) {
+      if (a.dishKey < b.dishKey) return -1;
+      if (a.dishKey > b.dishKey) return 1;
+      if (a.prepSort !== b.prepSort) return a.prepSort - b.prepSort;
+      if (a.eventSort !== b.eventSort) return a.eventSort - b.eventSort;
       if (a.itemNorm < b.itemNorm) return -1;
       if (a.itemNorm > b.itemNorm) return 1;
-      if (a.sourceTab < b.sourceTab) return -1;
-      if (a.sourceTab > b.sourceTab) return 1;
       return 0;
     });
     return out;
@@ -324,9 +435,9 @@
         fillSheetExcelJS(empty, 'Sauce, Purees and Gels', []);
       }
       return wb.xlsx.writeBuffer().then(function (buf) {
-        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: buf, engine: 'exceljs', layout: 'paula-sorted' };
+        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: buf, engine: 'exceljs', layout: 'paula-sorted-az' };
         downloadBlob(buf, name);
-        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'exceljs', layout: 'paula-sorted' };
+        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'exceljs', layout: 'paula-sorted-az' };
       });
     }
 
@@ -347,10 +458,10 @@
       });
       if (helpers.returnBuffer) {
         var out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: out, engine: 'xlsx', layout: 'paula-sorted' });
+        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: out, engine: 'xlsx', layout: 'paula-sorted-az' });
       }
       XLSX.writeFile(wb, name);
-      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'xlsx', layout: 'paula-sorted' };
+      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'xlsx', layout: 'paula-sorted-az' };
     }
 
     if (typeof document !== 'undefined') {
