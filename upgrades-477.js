@@ -1,7 +1,7 @@
 /* Prepline 4.7.7 (+4.7.8 sort, +4.8.2 sample rules) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
- * Prep day | Source tab | STAFF ALLOCATED (allergen suggestions).
+ * Prep day | Source tab | STAFF ALLOCATED (blank write-in).
  */
 (function (root) {
   'use strict';
@@ -119,7 +119,8 @@
   }
 
   function staffAllocated(r, helpers) {
-    /* Paula's Sorted puts allergen suggestions in STAFF ALLOCATED. */
+    /* 4.8.4: always blank - Paula writes in staff numbers herself. */
+    return '';
     if (helpers && typeof helpers.allergenText === 'function') {
       try {
         var t = helpers.allergenText(r.task);
