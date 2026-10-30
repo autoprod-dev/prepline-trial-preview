@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+4.7.8 sort) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
+/* Prepline 4.7.7 (+4.7.8 sort, +4.8.2 sample rules) — Organised export matches Paula's Sorted layout (trial copy only). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (allergen suggestions).
@@ -46,35 +46,47 @@
   function sheetForItem(item, sec) {
     var raw = String(item || '');
     /* Classify on the dish/item head (text before the first " / " method step) so
-     * words buried in method notes (Jus, Oil, Cream) do not steal the tab. */
+     * words buried in method notes (Jus, Oil, Cream) do not steal the tab.
+     * Rules refined from Paula Sorted samples WE15 + WE-08 + WE-01 (see private RULES.md). */
     var head = raw.split(/\s+\/\s+/)[0];
     var t = head.toLowerCase();
     var full = raw.toLowerCase();
+    /* 0) Vegetables that would otherwise match Butter/Sauce/Section fallbacks. */
+    if (/\bbutter\s*poached\b/.test(t)
+        || /\bpoached\s+onions?\b/.test(t)
+        || /\bzucchini\s*blossoms?\b/.test(t)) {
+      return 'Vegetables';
+    }
     /* 1) Sauces / purees / gels / dressings / ragu — head only. */
     if (/\b(jus|puree|purée|ponzu|dressing|romesco|aioli|vinaigrette|chimichurri|salsa|ragu|rag[uù])\b/.test(t)
         || /\b(cashew\s*cream|flora\s*cream|cream\s*sauce|umami\s*cream|cauliflower\s*cream)\b/.test(t)
         || /\bsauce\b/.test(t)
         || /(?:^|\s)cream\s*$/.test(t.trim())
         || /\bgel\b/.test(t)
-        || /^(butter|cream)$/.test(t.trim())) {
+        || /^(butter|cream)$/.test(t.trim())
+        || /\bparmesan\b/.test(t)) {
       return 'Sauce, Purees and Gels';
     }
-    /* 2) Garnishes — head: roe, soils, pickles, microherbs, oils-as-product, tendrils, fine herbs. */
+    /* 2) Garnishes — head: roe, soils, pickles, microherbs, oils-as-product, tendrils, fine herbs, crisps. */
     if (/\b(croutons?|fennel\s*seed|burrata|raisin|microherbs?|micro\s*herbs?|powder|pickled|tapenade|pesto|roe|finger\s*lime|kibbled|ma[iî]tre)\b/.test(t)
-        || /\b(soil|dukkah|gremolata|tendrils?)\b/.test(t)
+        || /\b(soil|dukkah|gremolata|tendrils?|crisps?)\b/.test(t)
         || /\b(fine\s*dic(?:ed)?|chopped|chiffon|pluck(?:ed)?|picked)\b/.test(t)
         || /\boil\b/.test(t)
         || /maître\s*d/.test(t)) {
       return 'Garnishes, Herbs, Powders, Oils';
     }
-    /* 3) Proteins — head: meat/seafood + cigar/croquette. */
+    /* 3) Proteins — head: meat/seafood + cigar; seafood croquettes only. */
     if (/\b(prawn|shrimp|lobster|crab|barramundi|barra|salmon|cod|tuna|swordfish|snapper|whiting|flathead|mackerel|trout)\b/.test(t)
         || /\b(beef|eye\s*fillet|tenderloin|sirloin|scotch|lamb|pork|veal|duck|chicken|turkey|quail|kangaroo|venison|wagyu)\b/.test(t)
-        || /\b(cigar|croquettes?)\b/.test(t)) {
+        || /\bcigar\b/.test(t)
+        || (/\bcroquettes?\b/.test(t) && /\b(crab|prawn|shrimp|lobster|fish|salmon|cod|barra|tuna|whiting)\b/.test(t))) {
       return 'Proteins';
     }
-    /* 4) Starch staples — head. */
-    if (/\b(mash|pav[eé]|terrine|parfait|wellington|duxelle|puff\s*pastry|potato\s+and\s+leek|dairy\s*free\s*mash|smoked\s*mash)\b/.test(t)) {
+    /* 4) Starch staples — head (incl. non-seafood croquettes, polenta, pasta, dumpling prep). */
+    if (/\b(mash|pav[eé]|terrine|parfait|wellington|duxelle|puff\s*pastry|potato\s+and\s+leek|dairy\s*free\s*mash|smoked\s*mash)\b/.test(t)
+        || /\b(polenta|fregola|gnocchi|ravioli|dumpling|risotto)\b/.test(t)
+        || /\bcroquettes?\b/.test(t)
+        || /\b(slice\s+potatoes|blanch\s+cabbage|braise\s+shredded\s+cabbage|cabbage\s+layers|cabbage\s+filling)\b/.test(t)) {
       return 'Starch';
     }
     /* 5) Vegetables — head (peas, radish, eggplant, remoulade, mushrooms). */
