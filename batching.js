@@ -12,6 +12,7 @@
  *     tie → earliest valid day (Gerard 4.8.9) + Saturday prefer. Solo → prepStartFromLead then clamp to winMax.
  *   - dayMoves: only applied when dest still covers every member within that pack's winMax.
  * Fish/seafood window 1: no cross-day merge; 1-day items stay day-before when a weekday exists.
+ * Veg 4.8.12: vegraw≤4 (collect/trim), vegcook≤3 (cook stages); batch only within same stage.
  */
 (function (root) {
   'use strict';
@@ -19,15 +20,15 @@
   var SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
 
   var DEFAULT_BATCHABLE = {
-    poultry: true, redmeat: true, seafood: true, veg: true, dry: true, oil: true,
+    poultry: true, redmeat: true, seafood: true, veg: true, vegraw: true, vegcook: true, dry: true, oil: true,
     gels: true, dressing: true, dairy: true, starch: true, crabcroq: true,
     garnish: false, micro: false
   };
 
   // 4-day proteins share window 4; fish stays 1 (no cross-day merge beyond that).
   var DEFAULT_BATCH_WINDOW = {
-    /* proteins 4, perishables(veg/garnish) 2, fish 1, dry/oils 4, crab croq 4, gels/starch 3, default 3 */
-    poultry: 4, redmeat: 4, seafood: 1, veg: 2, dry: 4, oil: 4,
+    /* proteins 4; vegraw 4 / vegcook|veg 3 (4.8.12); garnish 2; fish 1; dry/oils 4; gels/starch 3 */
+    poultry: 4, redmeat: 4, seafood: 1, veg: 3, vegraw: 4, vegcook: 3, dry: 4, oil: 4,
     gels: 3, dressing: 4, dairy: 4, starch: 3, crabcroq: 4,
     garnish: 2, micro: 1
   };

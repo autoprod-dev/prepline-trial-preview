@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.11-trial">
+<meta name="prepline-version" content="4.8.12-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -939,7 +939,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.11</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.12</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -949,8 +949,8 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
     occasionally (button above, in Recipe database mode) in case you switch computers, switch browsers, or
     clear browsing data.
     Sorting is keyword-based and won't be perfect — use the section dropdown on any row to move it.
-    Prep stage is auto-assigned on a 4-day lead time (Day 1 collect/trim/wash/count, Day 2 cook/steam/roast,
-    Day 3 portion/tray up/box off, Day 4 box-off continuation/production tools) based on each task's wording,
+    Prep stage for 4-day proteins: day 4 collect&amp;trim, day 3 sear/cool, day 2 re-tray/roast, event day box off.
+    Fish stays 1 day (never early). Veg: raw/trim up to 4 days, cooked stages max 3. Stages from task wording;
     then mapped onto real weekdays — in Recipe database mode, working backward from the event date you enter
     each week (a Saturday event runs Wed/Thu/Fri/Sat prep); in One-time sort mode, from a weekday named in the
     dish's tab (e.g. "Mains Beef Fillet Saturday") or set manually per dish. The "By prep day" view groups every
@@ -1997,15 +1997,18 @@ function setRosteredChefs(day, val){
   render();
 }
 
-// Internal 4-stage prep-difficulty classification (collect/wash → cook → portion/tray up →
-// box-off/tools). Not shown in the UI directly — it's just how the tool decides which
-// actual weekday (Monday–Sunday) each task lands on, based on the dish's event day.
-const STAGE_NAMES = ['Collect/Trim/Wash','Cook/Steam/Roast','Portion/Tray up/Box off','Box off cont./Tools'];
+// Internal 4-stage protein-style timeline (Gerard 4.8.12). Used when stage/task-per-day
+// views need a label; prep START for 4-day proteins stays at lead=4 (collect/trim day).
+// Stage 1 = day 4 before event: collect & trim
+// Stage 2 = day 3 before: sear / cool down
+// Stage 3 = day 2 before: re-tray or roast
+// Stage 4 = day 1 (event day): box off
+const STAGE_NAMES = ['Collect & trim (day 4)','Sear / cool down (day 3)','Re-tray or roast (day 2)','Box off (event day)'];
 
 // ---------- event-day → calendar prep-day mapping ----------
 // Each dish tab is named with its event weekday (e.g. "Mains Beef Fillet Saturday").
 // With a 4-day prep lead: Stage 1 = event day − 3, Stage 2 = event day − 2,
-// Stage 3 = event day − 1, Stage 4 = the event day itself (final box-off/continuation).
+// Stage 3 = event day − 1, Stage 4 = the event day itself (box off).
 const WEEKDAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 // v3.4.8: days are shown numbered everywhere ("1 Monday" ... "7 Sunday"): pickers, every view, all prints.
 const CLASSIC_KEY = 'prepline.classicDays.v1';
@@ -2259,6 +2262,29 @@ function prepInfoFor(text, legendPrep, section, dishCtx){
   let info = c
     ? {prepCat: c.key, leadDays: c.lead, prepSrc: src, weekendShift: !!c.weekendShift}
     : {prepCat: '', leadDays: null, prepSrc: '', weekendShift: false};
+  /* 4.8.12: refine Vegetables → vegraw (≤4) or vegcook (≤3). Unclear → vegcook. */
+  try{
+    const isVegFamily = info.prepCat === 'veg' || info.prepCat === 'vegraw' || info.prepCat === 'vegcook'
+      || (c && c.family === 'veg')
+      || section === 'Vegetables';
+    if (isVegFamily && typeof window.classifyVegPrepStage === 'function'){
+      /* Only stage-split when this line is actually veg (not a puree/oil mis-hit already classified). */
+      const alreadyNonVeg = info.prepCat && !/^veg/.test(info.prepCat);
+      if (!alreadyNonVeg){
+        const st = window.classifyVegPrepStage(text);
+        const vc = prepCatByKey(st.key) || { key: st.key, lead: st.key === 'vegraw' ? 4 : 3, weekendShift: true };
+        info.prepCat = vc.key;
+        info.leadDays = vc.lead;
+        info.weekendShift = !!vc.weekendShift;
+        info.vegStage = st.stage;
+        info.vegStageClear = !!st.clear;
+        info.vegStageReason = st.reason || '';
+        if (!st.clear) info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'veg-default-cook';
+        else if (info.prepSrc === 'legend' || info.prepSrc === 'section' || info.prepSrc === 'keyword')
+          info.prepSrc = info.prepSrc + '+veg-' + st.stage;
+      }
+    }
+  }catch(e){}
   // Editable Rules overrides (e.g. crab croquettes → 4-day weekend-shift group)
   try{
     if (window.PreplineRules && typeof window.PreplineRules.evaluate === 'function'){
@@ -2403,21 +2429,23 @@ function eventDaySelect(encodedDish, current){
   </select>`;
 }
 
-// ---- 4-day lead time auto-assignment ----
-// Day 1: collecting, trimming, washing, counting, topping up orders
-// Day 2: cooking — steaming, blanching, chargrilling, roasting and similar
-// Day 3: portioning, tray up, organising, box off, trolley cards
-// Day 4: box-off continuation, filling production tools/cambros
+// ---- 4-day lead time auto-assignment (proteins / similar; Gerard 4.8.12) ----
+// Day 1 keywords → stageNum 1 → calendar event−3 (= day 4 before): collect & trim
+// Day 2 keywords → stageNum 2 → event−2 (= day 3 before): sear / cool down
+// Day 3 keywords → stageNum 3 → event−1 (= day 2 before): re-tray or roast
+// Day 4 keywords → stageNum 4 → event day: box off
+// Fish/seafood stay lead=1 (never batched early). Veg uses vegraw/vegcook (4.8.12), not this split.
 const DAY1_KW = ['collect','trim','wash','count','top up order','topup order','top-up order','order top up','order',
   'peel','devein','de-vein','unpack','receive delivery','receiving','stocktake','par level','tally','defrost',
   'thaw','pat dry','squeeze','drain'];
-const DAY2_KW = ['cook','charred','steam','blanch','chargrill','char-grill','char grill','roast','grill','sear','saute','sauté',
-  'braise','sous vide','deep fry','smoke','poach','simmer','reduce','bake','ferment','infuse','char','griddle',
-  'pan-fry','panfry','confit','render','caramelise','caramelize','toast','dehydrate','vac cook','melt','glaze'];
-const DAY3_KW = ['portion','tray up','trolley card','trolley','organise','organize','box off','plate up',
-  'divide into','allocate','arrange on tray','set up tray','label and store','wrap individually','crumb'];
-const DAY4_KW = ['continuation','production tool','fill up cambro','fill cambro','restock','top up trolley',
-  'replenish','fill up','pack extra','spare stock','buffer stock','contingency'];
+const DAY2_KW = ['sear','cool down','cooldown','cool','charred','chargrill','char-grill','char grill','grill',
+  'pan-fry','panfry','saute','sauté','char','griddle','smoke','poach','sous vide'];
+const DAY3_KW = ['re-tray','retray','re tray','roast','cook','steam','blanch','braise','bake','portion','tray up',
+  'trolley card','trolley','organise','organize','plate up','divide into','allocate','arrange on tray','set up tray',
+  'label and store','wrap individually','crumb','deep fry','simmer','reduce','ferment','infuse','confit','render',
+  'caramelise','caramelize','toast','dehydrate','vac cook','melt','glaze'];
+const DAY4_KW = ['box off','box-off','continuation','production tool','fill up cambro','fill cambro','restock',
+  'top up trolley','replenish','fill up','pack extra','spare stock','buffer stock','contingency'];
 const DAY_WORDBOUND = new Set(['order','count','char','melt']);   // v3.2.1: 'char' not "swiss chard"/"charcuterie", 'melt' not "smelt"
 
 // Fallback default per base category when no day-keyword is found in the task text —
@@ -2450,8 +2478,8 @@ function paveDayOverride(t){
   if (t.includes('tray up')) return 2;
   return null;
 }
-// All proteins that get seared: collect/count/tray up/brine/marinate/decant = Stage 1,
-// sear/chargrill/grill (+its tray up) = Stage 2 — every protein, not just beef fillet.
+// Proteins (4-day): collect/trim/brine/marinate/decant = Stage 1 (day 4);
+// sear/cool = Stage 2 (day 3). Fish stay lead=1 via seafood prepCat, not this override.
 function proteinSearOverride(t, baseCategory){
   const isProteinTask = baseCategory === 'Proteins' || t.includes('beef') || t.includes('chicken') ||
     t.includes('lamb') || t.includes('duck') || t.includes('pork') || t.includes('salmon') ||

@@ -1,4 +1,4 @@
-/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2).
+/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.12).
  * EDIT THIS FILE to change the rules. Each category has:
  *   lead   - how many days BEFORE the event/function day the job starts (0 = on the day)
  *   weekendShift - if true, Sat/Sun starts use weekend avoidance (forward Mon / back Fri).
@@ -6,7 +6,13 @@
  *                  profile toggle is on; this flag still seeds per-rule defaults.
  *   batchWindow - max days from batch prep day to latest member use (protein = 4, fish = 1)
  *   legend / words - matching (first match wins; specific before general)
+ *
+ * Protein 4-day stages (Gerard 4.8.12) — prep START remains lead=4:
+ *   day 4 before = collect & trim; day 3 = sear/cool down; day 2 = re-tray or roast;
+ *   day 1 (event) = box off. Fish/seafood lead=1 (never batch early). Veg-only stage split:
+ *   vegraw≤4 (collect/trim), vegcook≤3 (cook). Unclear veg → vegcook.
  */
+
 window.PREP_DAYS_VOCAB = [
   {key:'micro',   label:'Micro herbs',             lead:1, batchWindow:1, weekendShift:true, family:'garnish',
    legend:['micro herbs','micro greens','micro herb','micros','micro'],
@@ -32,9 +38,15 @@ window.PREP_DAYS_VOCAB = [
   {key:'garnish', label:'Garnish, pick herbs',     lead:2, batchWindow:2, weekendShift:true, family:'garnish',
    legend:['garnish','garnishes','pick herbs','picked herbs','herbs','garnish pick herbs','garnishes pick herbs'],
    words:['garnish*','pick','picked','herb','herbs','parsley','chervil','dill','coriander','mint','basil','chive*','tarragon','sage','thyme','rosemary','oregano','shiso','edible flower*','flower edible','flowers','pickle*','pickled','viola','allysium','alyssum','sorrel','red vein','soaked raisin','raisin','fennel seed','seed mix','pea tendril','tendril','blossom*','zucchini blossom','salmon roe','trout roe','roe','caviar','tobiko','karkalla','samphire','sea blite']},
-  {key:'veg',     label:'Vegetables',              lead:2, batchWindow:2, weekendShift:true, family:'veg',
+  /* 4.8.12 Gerard: veg raw collect/trim up to 4 days; cooked stages max 3 (prefer 2–3).
+   * Matching still uses produce words → key 'veg', then classifyVegPrepStage refines to vegraw|vegcook. */
+  {key:'veg',     label:'Vegetables',              lead:3, batchWindow:3, weekendShift:true, family:'veg',
    legend:['veg','vege','veges','veggies','vegetable','vegetables'],
-   words:['veg','vege','vegetable*','carrot*','dutch carrot*','baby carrot*','onion*','shallot*','eschalot*','leek*','celery','celeriac','fennel','beetroot*','beet*','pumpkin','squash','zucchini','eggplant','aubergine','capsicum*','mushroom*','cauliflower','broccoli*','broccolini','asparagus','pea','peas','bean*','kale','spinach','cabbage','tomato*','cucumber*','radish*','corn','garlic','lettuce','greens','cos','witlof','artichoke*','parsnip*','turnip*','kohlrabi','silverbeet','chard','okra','salad','warrigal','karkalla','samphire','sea blite','blite','saltbush','davidson','finger lime','bunya','yam daisy','compressed apple','apple dice']},
+   words:['veg','vege','vegetable*','carrot*','dutch carrot*','baby carrot*','onion*','shallot*','eschalot*','leek*','celery','celeriac','fennel','beetroot*','beet*','pumpkin','squash','zucchini','eggplant','aubergine','capsicum*','mushroom*','cauliflower','broccoli*','broccolini','asparagus','pea','peas','bean*','kale','spinach','cabbage','tomato*','cucumber*','radish*','corn','garlic','lettuce','greens','cos','witlof','witlof','artichoke*','parsnip*','turnip*','kohlrabi','silverbeet','chard','okra','salad','warrigal','karkalla','samphire','sea blite','blite','saltbush','davidson','finger lime','bunya','yam daisy','compressed apple','apple dice','shimeji','enoki','king brown']},
+  {key:'vegraw',  label:'Vegetables (raw / trim)', lead:4, batchWindow:4, weekendShift:true, family:'veg',
+   legend:[], words:[]},
+  {key:'vegcook', label:'Vegetables (cooked)',     lead:3, batchWindow:3, weekendShift:true, family:'veg',
+   legend:[], words:[]},
   {key:'poultry', label:'Poultry',                 lead:4, batchWindow:4, weekendShift:true, family:'protein',
    legend:['poultry','chicken','duck','birds','game birds'],
    words:['poultry','chicken','duck','turkey','quail','spatchcock','poussin','guinea fowl','pheasant','goose','pigeon','squab','confit leg','thigh*','drumstick*','wing*']},
@@ -49,3 +61,32 @@ window.PREP_DAYS_VOCAB = [
    legend:[],
    words:[]}
 ];
+
+/* 4.8.12 — Gerard: veg raw (collect/trim) ≤4 days; cooked ≤3. Batch only within same stage.
+ * Returns { key:'vegraw'|'vegcook', stage:'raw'|'cooked', clear:boolean, reason:string }.
+ * Unclear → vegcook (shorter, safer).
+ */
+window.classifyVegPrepStage = function classifyVegPrepStage(taskText) {
+  var raw = String(taskText == null ? '' : taskText);
+  var t = raw.toLowerCase().replace(/[ée]/g, function (m) { return m === 'é' ? 'e' : m; });
+  var parts = t.split(/\s*\/\s*/);
+  var head = (parts[0] || '').trim();
+  var method = parts.slice(1).join(' / ');
+  var body = method || t;
+
+  var RAW_RE = /\b(collect|collection|pick|picked|picking|trim|trimmed|trimming|wash|washed|washing|peel|peeled|peeling|cut|cutting|slice|sliced|slicing|dice|diced|dicing|shave|shaved|shaving|portion|portioned|decant|shred|shredded|drain|drained|bag(?:ged)?|tray(?:ed)?)\b/;
+  var COOK_RE = /\b(roast|roasted|roasting|blanch|blanched|blanching|cook|cooked|cooking|puree|pureed|purees|confit|grill|grilled|grilling|saute|sauteed|sauted|fry|fried|frying|oven|bake|baked|baking|steam|steamed|steaming|boil|boiled|boiling|braise|braised|char|charred|sear|seared|poach|poached|sous[\s-]?vide|compress(?:ed)?|fermen(?:t|ted)|pickle(?:d)?|cure(?:d)?|smoke(?:d)?|glaze(?:d)?|caramelis(?:e|ed)|carameliz(?:e|ed)|reduce(?:d)?|reduction|ragu|remoulade|marinade|marinate(?:d)?)\b/;
+  /* "rub" only as a method step, not "no rub" / "eggplant no rub" */
+  var RUB_RE = /(^|\/)\s*rub\b/;
+
+  var hasCook = COOK_RE.test(body) || COOK_RE.test(head) || RUB_RE.test(body);
+  var hasRaw = RAW_RE.test(body);
+
+  if (hasCook) {
+    return { key: 'vegcook', stage: 'cooked', clear: true, reason: 'cook-stage keyword' };
+  }
+  if (hasRaw && method) {
+    return { key: 'vegraw', stage: 'raw', clear: true, reason: 'raw-stage keyword only' };
+  }
+  return { key: 'vegcook', stage: 'cooked', clear: false, reason: 'unclear — default cooked (shorter)' };
+};
