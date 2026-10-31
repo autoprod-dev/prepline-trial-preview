@@ -12,6 +12,7 @@
  *     tie → earliest valid day (Gerard 4.8.9) + Saturday prefer. Solo → prepStartFromLead then clamp to winMax.
  *   - dayMoves: only applied when dest still covers every member within that pack's winMax.
  * Fish/seafood window 2 (4.8.13 Gerard): collect/trim then process/count/tray; Mon-event → Sat.
+ * Prawns window 1 + not batchable (4.8.24 Gerard): Paula orders day-before for freshness; no Mon/Sat early pack.
  * Veg 4.8.12: vegraw≤4 (collect/trim), vegcook≤3 (cook stages); batch only within same stage.
  * 4.8.17 long-life (dressings, croutons, dry powders/crumbs, oils): last ~2 weeks — pack ALL
  * week rows of the same item onto ONE prep day = up to 4 days before earliest function
@@ -23,15 +24,15 @@
   var SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
 
   var DEFAULT_BATCHABLE = {
-    poultry: true, redmeat: true, seafood: true, veg: true, vegraw: true, vegcook: true, dry: true, oil: true,
+    poultry: true, redmeat: true, seafood: true, prawn: false, veg: true, vegraw: true, vegcook: true, dry: true, oil: true,
     gels: true, dressing: true, dairy: true, starch: true, crabcroq: true,
     garnish: false, micro: false
   };
 
-  // 4-day proteins share window 4; seafood/fish & prawns window 2 (4.8.13).
+  // 4-day proteins share window 4; seafood/fish window 2 (4.8.13); prawns window 1 non-batchable (4.8.24).
   var DEFAULT_BATCH_WINDOW = {
-    /* proteins 4; seafood 2 (4.8.13); vegraw 4 / vegcook|veg 3; garnish 2; dry/oils 4; gels/starch 3 */
-    poultry: 4, redmeat: 4, seafood: 2, veg: 3, vegraw: 4, vegcook: 3, dry: 4, oil: 4,
+    /* proteins 4; seafood 2 (4.8.13); prawn 1 (4.8.24); vegraw 4 / vegcook|veg 3; garnish 2; dry/oils 4; gels/starch 3 */
+    poultry: 4, redmeat: 4, seafood: 2, prawn: 1, veg: 3, vegraw: 4, vegcook: 3, dry: 4, oil: 4,
     gels: 3, dressing: 4, dairy: 4, starch: 3, crabcroq: 4,
     garnish: 2, micro: 1
   };

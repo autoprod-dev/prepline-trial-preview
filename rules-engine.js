@@ -59,14 +59,27 @@
       field: 'name', op: 'contains', value: 'crab croquette', wildcard: false,
       category: 'crabcroq', leadDays: 4, weekendShift: true, overridePrep: true, stack: false
     });
+    // 4.8.24 Gerard: prawns prep 1 day before (Paula orders day-before for freshness); not Mon/Sat early-batched.
+    // Priority 5 so these beat any leftover seafood prawn/shrimp keywords on older profiles.
+    ['prawn', 'prawns', 'shrimp', 'shrimps'].forEach(function (w) {
+      rules.push({
+        id: uid(), type: 'keyword', enabled: true, priority: 5,
+        name: 'Prawns → 1-day (order day-before)',
+        field: 'name', op: 'contains', value: w, wildcard: false,
+        category: 'prawn', leadDays: 1, weekendShift: true, overridePrep: true, stack: false
+      });
+    });
     var batchable = {};
     (Array.isArray(root.PREP_DAYS_VOCAB) ? root.PREP_DAYS_VOCAB : []).forEach(function (c) {
-      // Default on for protein/veg/dry/oil/sauce/starch/dairy/dressing; off for garnish/micro
+      // Default on for protein/veg/dry/oil/sauce/starch/dairy/dressing; off for garnish/micro/prawn
       var on = (c.family === 'protein' || c.family === 'veg' || c.family === 'sauce' ||
         c.family === 'starch' || c.family === 'dairy' || c.family === 'dressing' ||
         c.key === 'dry' || c.key === 'oil' || c.key === 'crabcroq');
       batchable[c.key] = !!on;
     });
+    batchable.prawn = false; /* 4.8.24: never early-batch prawns (Mon/Sat packing) */
+    batchable.garnish = false;
+    batchable.micro = false;
     return {
       id: 'default',
       name: 'Default',
@@ -75,7 +88,7 @@
       weekendShift: true, // 4.6.2: weekend avoidance for ALL categories (profile toggle)
       allowSaturdayStarts: false, // default: no Saturday starts
       saturdayCap: 3, // optional soft cap when Saturday starts allowed
-      prepDaysVersion: '4.6.4',
+      prepDaysVersion: '4.8.24',
       batchable: batchable, // cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
@@ -130,12 +143,33 @@
             o.version = 4;
             saveStore(o);
           }
+          // 4.8.24: prawn lead=1 + not batchable; refresh built-in Default rules/batchable
+          if (!o.version || o.version < 5) {
+            var fresh5 = defaultFromVocab();
+            o.profiles.forEach(function (pr) {
+              if (!pr.batchable || typeof pr.batchable !== 'object') pr.batchable = Object.assign({}, fresh5.batchable);
+              else {
+                Object.keys(fresh5.batchable || {}).forEach(function (k) {
+                  if (pr.batchable[k] === undefined) pr.batchable[k] = fresh5.batchable[k];
+                });
+                pr.batchable.prawn = false;
+              }
+              if (pr.id === 'default' && pr.builtIn) {
+                pr.rules = fresh5.rules;
+                pr.batchable = Object.assign({}, fresh5.batchable);
+                pr.batchable.prawn = false;
+                pr.prepDaysVersion = '4.8.24';
+              }
+            });
+            o.version = 5;
+            saveStore(o);
+          }
           return o;
         }
       }
     } catch (e) {}
     var def = defaultFromVocab();
-    var store = { profiles: [def], version: 4 };
+    var store = { profiles: [def], version: 5 };
     saveStore(store);
     return store;
   }
