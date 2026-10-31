@@ -1,8 +1,8 @@
-/* Prepline 4.8.12 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.13 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
- *   - 4-day proteins (poultry/redmeat/crabcroq) incl. chicken; fish/seafood window 1
+ *   - 4-day proteins (poultry/redmeat/crabcroq) incl. chicken; fish/seafood/prawns window 2 (4.8.13)
  *   - Saturday covers Mon+Tue (maxFwd 3); Mon can cover through Fri (winMax 4)
  *   - Sunday never; saturdayCap overflow → Friday; dry/oils window 4
  * Organised yellow-header export then:
@@ -107,7 +107,7 @@
       blockedDays: helpers.blockedDays || new Set()
     };
 
-    /* Ensure food-type + lead when prepCat missing (Paula 4.3.5 / Gerard: poultry 4, fish 1). */
+    /* Ensure food-type + lead when prepCat missing (Gerard: poultry/redmeat 4, seafood/fish&prawns 2). */
     list.forEach(function (r) {
       if (!r) return;
       if (!r.prepCat) {
@@ -115,9 +115,9 @@
         if (/\bchicken\b|\bspatch\b|\bpoultry\b|\bduck\b|\bturkey\b|\bquail\b/.test(t)) {
           r.prepCat = 'poultry';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
-        } else if (/\bsalmon\b|\bfish\b|\bcod\b|\btrout\b|\bbarramundi\b|\bprawn\b|\bscallop\b|\btuna\b|\bseafood\b/.test(t)) {
+        } else if (/\bsalmon\b|\bfish\b|\bcod\b|\btrout\b|\bbarramundi\b|\bprawn\b|\bshrimp\b|\bscallop\b|\btuna\b|\bseafood\b/.test(t)) {
           r.prepCat = 'seafood';
-          if (!Number.isFinite(r.leadDays)) r.leadDays = 1;
+          if (!Number.isFinite(r.leadDays)) r.leadDays = 2;
         } else if (/\bbeef\b|\blamb\b|\bpork\b|\bveal\b|\bwagyu\b|\bbrisket\b/.test(t)) {
           r.prepCat = 'redmeat';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
@@ -362,7 +362,7 @@
   var RULE_CLARIFICATIONS = [
     'Wed vs Mon+Tue (4.8.9 Gerard): Saturday maxFwd=min(winMax,4) so Sat covers Mon+Tue+Wed when under saturdayCap; if Sat heavy / cap full, Wed pushes to Monday. In-app → next day moves a prep group on the fly.',
     'Thu+Fri prep day (4.8.9 Gerard): earliest valid day = Monday (tie-break no longer fresher/later).',
-    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=1; vegraw=4 / vegcook|veg=3 (4.8.12); garnish=2; gels/starch=3; poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1. garnish/micro default batchable=false.',
+    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish&prawns=2 (4.8.13); vegraw=4 / vegcook|veg=3; garnish=2; gels/starch=3; poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1. garnish/micro default batchable=false.',
     'Saturday: only for multi-use 4-day proteins (≥2 uses) when allowSaturdayStarts is off; saturdayCap default 3 then overflow to Friday.',
     'Sunday: never used as a prep start (always shifted).',
     'Solo (single use): uses prepStartFromLead (base lead + weekend avoidance), not the multi-use Saturday pack.',
@@ -370,7 +370,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.12',
+    VERSION: '4.8.13',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

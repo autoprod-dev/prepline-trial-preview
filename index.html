@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.12-trial">
+<meta name="prepline-version" content="4.8.13-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -939,7 +939,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.12</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.13</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -950,7 +950,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
     clear browsing data.
     Sorting is keyword-based and won't be perfect — use the section dropdown on any row to move it.
     Prep stage for 4-day proteins: day 4 collect&amp;trim, day 3 sear/cool, day 2 re-tray/roast, event day box off.
-    Fish stays 1 day (never early). Veg: raw/trim up to 4 days, cooked stages max 3. Stages from task wording;
+    Fish &amp; prawns: 2 days (collect/trim then process/tray). Other proteins 4 days. Veg: raw ≤4, cooked ≤3. Stages from task wording;
     then mapped onto real weekdays — in Recipe database mode, working backward from the event date you enter
     each week (a Saturday event runs Wed/Thu/Fri/Sat prep); in One-time sort mode, from a weekday named in the
     dish's tab (e.g. "Mains Beef Fillet Saturday") or set manually per dish. The "By prep day" view groups every
@@ -2434,7 +2434,7 @@ function eventDaySelect(encodedDish, current){
 // Day 2 keywords → stageNum 2 → event−2 (= day 3 before): sear / cool down
 // Day 3 keywords → stageNum 3 → event−1 (= day 2 before): re-tray or roast
 // Day 4 keywords → stageNum 4 → event day: box off
-// Fish/seafood stay lead=1 (never batched early). Veg uses vegraw/vegcook (4.8.12), not this split.
+// Seafood/fish & prawns lead=2 (4.8.13: day2 collect/trim, day1 process/count/tray). Veg uses vegraw/vegcook.
 const DAY1_KW = ['collect','trim','wash','count','top up order','topup order','top-up order','order top up','order',
   'peel','devein','de-vein','unpack','receive delivery','receiving','stocktake','par level','tally','defrost',
   'thaw','pat dry','squeeze','drain'];
@@ -2479,7 +2479,7 @@ function paveDayOverride(t){
   return null;
 }
 // Proteins (4-day): collect/trim/brine/marinate/decant = Stage 1 (day 4);
-// sear/cool = Stage 2 (day 3). Fish stay lead=1 via seafood prepCat, not this override.
+// sear/cool = Stage 2 (day 3). Seafood/fish & prawns use lead=2 via seafood prepCat, not this override.
 function proteinSearOverride(t, baseCategory){
   const isProteinTask = baseCategory === 'Proteins' || t.includes('beef') || t.includes('chicken') ||
     t.includes('lamb') || t.includes('duck') || t.includes('pork') || t.includes('salmon') ||

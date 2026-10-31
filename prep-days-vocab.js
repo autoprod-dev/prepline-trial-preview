@@ -1,16 +1,19 @@
-/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.12).
+/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.13).
  * EDIT THIS FILE to change the rules. Each category has:
  *   lead   - how many days BEFORE the event/function day the job starts (0 = on the day)
  *   weekendShift - if true, Sat/Sun starts use weekend avoidance (forward Mon / back Fri).
  *                  4.6.2: weekend avoidance applies to ALL categories when the Rules
  *                  profile toggle is on; this flag still seeds per-rule defaults.
- *   batchWindow - max days from batch prep day to latest member use (protein = 4, fish = 1)
+ *   batchWindow - max days from batch prep day to latest member use (protein = 4, fish/seafood = 2)
  *   legend / words - matching (first match wins; specific before general)
  *
- * Protein 4-day stages (Gerard 4.8.12) — prep START remains lead=4:
+ * Protein 4-day stages (Gerard 4.8.12) — poultry/redmeat prep START lead=4:
  *   day 4 before = collect & trim; day 3 = sear/cool down; day 2 = re-tray or roast;
- *   day 1 (event) = box off. Fish/seafood lead=1 (never batch early). Veg-only stage split:
- *   vegraw≤4 (collect/trim), vegcook≤3 (cook). Unclear veg → vegcook.
+ *   day 1 (event) = box off.
+ * Seafood / fish & prawns (Gerard 4.8.13): lead=2, batchWindow=2 —
+ *   day 2 before = collect & trim; day 1 before = process / count / tray up.
+ *   Covers fish, prawns/shrimp, and other seafood words below. Resolves Mon-event
+ *   (Saturday start). Veg-only stage split: vegraw≤4, vegcook≤3. Unclear veg → vegcook.
  */
 
 window.PREP_DAYS_VOCAB = [
@@ -26,7 +29,7 @@ window.PREP_DAYS_VOCAB = [
   {key:'gels',    label:'Gels and purees',         lead:3, batchWindow:3, weekendShift:true, family:'sauce',
    legend:['gel','gels','puree','purees','sauce','sauces','sauce puree gels','sauces purees gels'],
    words:['gel*','puree*','purée*','pureed','coulis','fluid gel','jelly','butter glaze','glaze','romesco','reduction','jus','gravy','salsa','relish','chutney','ragu','ragout','ponzu','cashew cream','cream flora','flora cream']},
-  {key:'seafood', label:'Seafood',                 lead:1, batchWindow:1, weekendShift:true, family:'protein',
+  {key:'seafood', label:'Seafood',                 lead:2, batchWindow:2, weekendShift:true, family:'protein',
    legend:['seafood','fish','shellfish'],
    words:['seafood','fish','salmon','tuna','prawn*','scallop*','barramundi','kingfish','hiramasa','snapper','cod','crab','lobster','octopus','squid','calamari','mussel*','oyster*','clam*','bug','bugs','trout','ling','mackerel','sardine*','anchov*','swordfish','whiting','flathead','john dory','bream','caviar','hake','flake','mullet','garfish','ocean trout','coral trout','blue eye','blueeye','pipi*','yabby*','marron','eel','shrimp*','langoustine*','crayfish','dory']},
   {key:'redmeat', label:'Red meat',                lead:4, batchWindow:4, weekendShift:true, family:'protein',

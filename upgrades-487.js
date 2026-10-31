@@ -5,7 +5,7 @@
 (function (root) {
   'use strict';
   root.Prepline487 = {
-    VERSION: '4.8.12',
+    VERSION: '4.8.13',
     FIX: 'organised-export-section-equals-tab+total-needed-cached'
   };
 })(typeof window !== 'undefined' ? window : globalThis);
