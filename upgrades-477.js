@@ -1,7 +1,7 @@
-/* Prepline 4.7.7 (+4.7.8/4.8.8 sort, +4.8.2 rules, +4.8.7 Section=tab, +4.8.8 smart-chef prep-day groups + pastel) — Paula Sorted layout (trial). Autoprod.
- * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
+/* Prepline 4.7.7 (+… +4.8.14 week-ending title + DONE tick) — Paula Sorted layout (trial). Autoprod.
+ * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
- * Prep day | Source tab | STAFF ALLOCATED (blank write-in).
+ * Prep day | Source tab | STAFF ALLOCATED | DONE (☐/☑ tick). Print titles repeat WE+section+header every page.
  */
 (function (root) {
   'use strict';
@@ -26,10 +26,19 @@
 
   var HEADERS = [
     'Item', 'Quantity per pax', 'Unit', 'PAX ', 'Total needed',
-    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED'
+    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED', 'DONE'
   ];
 
-  var COL_WIDTHS = [38.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 34.75, 30.75];
+  var COL_WIDTHS = [38.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 34.75, 28.75, 8.5];
+  var COL_COUNT = HEADERS.length;
+  var DONE_COL = COL_COUNT; /* 1-based */
+  var DONE_UNCHECKED = '\u2610'; /* ☐ */
+  var DONE_CHECKED = '\u2611'; /* ☑ */
+  /* Rows: 1=WEEK ENDING, 2=section title, 3=yellow headers, 4+=data */
+  var TITLE_WE_ROW = 1;
+  var TITLE_SECTION_ROW = 2;
+  var HEADER_ROW = 3;
+  var DATA_START_ROW = 4;
 
   function sheetForSection(sec) {
     var s = String(sec || '').trim();
@@ -47,6 +56,85 @@
     }
     return s || '—';
   }
+
+  function pad2(n) {
+    n = Number(n);
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  /** Format as Paula-style DD.MM.YY */
+  function formatWeLabel(dd, mm, yy) {
+    var y = String(yy);
+    if (y.length === 4) y = y.slice(2);
+    return 'WEEK ENDING ' + pad2(dd) + '.' + pad2(mm) + '.' + y;
+  }
+
+  /** Parse WE-15.11.26 / WE 15.11.26 / week ending 15/11/2026 from text. */
+  function parseWeFromText(text) {
+    var s = String(text || '');
+    var m = s.match(/\bWE[\s._-]*(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\b/i);
+    if (!m) m = s.match(/\bweek\s*ending\s*:?\s*(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})\b/i);
+    if (!m) return null;
+    return formatWeLabel(m[1], m[2], m[3]);
+  }
+
+  /** Parse dd/mm/yyyy or dd.mm.yy → Date (local). */
+  function parseAussieDate(str) {
+    var m = String(str || '').trim().match(/^(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})$/);
+    if (!m) return null;
+    var dd = Number(m[1]), mm = Number(m[2]), yy = Number(m[3]);
+    if (yy < 100) yy += 2000;
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+    var d = new Date(yy, mm - 1, dd);
+    if (d.getFullYear() !== yy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+    return d;
+  }
+
+  /** Paula convention: week ends on Sunday (WE-15.11.26 = Sunday). */
+  function sundayOnOrAfter(d) {
+    var day = d.getDay(); /* 0=Sun */
+    if (day === 0) return d;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + (7 - day));
+  }
+
+  /**
+   * Resolve WEEK ENDING label for organised export.
+   * 1) Upload filename WE-xx.xx.xx
+   * 2) Max BAT/function date → Sunday ending that week
+   * 3) Fallback hand-entry placeholder
+   */
+  function resolveWeekEndingLabel(helpers, paulaRows) {
+    helpers = helpers || {};
+    var fromFile = parseWeFromText(helpers.sourceFileName || helpers.fileName || '');
+    if (fromFile) return { label: fromFile, source: 'filename' };
+
+    var dates = [];
+    var getDs = helpers.getEventDateStr;
+    (paulaRows || []).forEach(function (r) {
+      var ds = null;
+      if (typeof getDs === 'function') {
+        try {
+          var dish = r.sourceTab || r.dish || '';
+          /* sourceTab is often the dish/tab name used for event lookup */
+          ds = getDs(dish) || getDs(String(dish).replace(/^\d+\s+\w+\s+/, ''));
+        } catch (e) {}
+      }
+      if (!ds && r.eventDateStr) ds = r.eventDateStr;
+      var d = parseAussieDate(ds);
+      if (d) dates.push(d);
+    });
+    if (dates.length) {
+      dates.sort(function (a, b) { return a - b; });
+      var latest = dates[dates.length - 1];
+      var sun = sundayOnOrAfter(latest);
+      return {
+        label: formatWeLabel(sun.getDate(), sun.getMonth() + 1, sun.getFullYear()),
+        source: 'event-dates'
+      };
+    }
+    return { label: 'WEEK ENDING: ____', source: 'blank' };
+  }
+
 
   /* Paula places rows on tabs by what the item is, not only by the colour-legend Section.
    * 4.8.7: Section column ALWAYS equals the tab the row is placed on (canonical label,
@@ -452,17 +540,32 @@
     return qn * pn;
   }
 
-  function fillSheetExcelJS(ws, sheetTitle, rows) {
+  function fillSheetExcelJS(ws, sheetTitle, rows, weekEndingLabel) {
     var colourMap = {};
-    ws.mergeCells(1, 1, 1, 10);
-    var title = ws.getCell(1, 1);
+    var we = weekEndingLabel || 'WEEK ENDING: ____';
+    var lastCol = COL_COUNT;
+
+    /* Row 1 — WEEK ENDING (repeats on every printed page via printTitlesRow) */
+    ws.mergeCells(TITLE_WE_ROW, 1, TITLE_WE_ROW, lastCol);
+    var weCell = ws.getCell(TITLE_WE_ROW, 1);
+    weCell.value = we;
+    weCell.font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF000000' } };
+    weCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    weCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+    weCell.border = thinBorder();
+    ws.getRow(TITLE_WE_ROW).height = 24;
+
+    /* Row 2 — section / tab title */
+    ws.mergeCells(TITLE_SECTION_ROW, 1, TITLE_SECTION_ROW, lastCol);
+    var title = ws.getCell(TITLE_SECTION_ROW, 1);
     title.value = sheetTitle;
     title.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FF000000' } };
     title.alignment = { horizontal: 'center', vertical: 'middle' };
     title.border = thinBorder();
-    ws.getRow(1).height = 21;
+    ws.getRow(TITLE_SECTION_ROW).height = 21;
 
-    var head = ws.getRow(2);
+    /* Row 3 — yellow column headers */
+    var head = ws.getRow(HEADER_ROW);
     HEADERS.forEach(function (h, i) {
       var cell = head.getCell(i + 1);
       cell.value = h;
@@ -471,7 +574,7 @@
     head.height = 16.5;
 
     rows.forEach(function (r, idx) {
-      var excelRow = idx + 3;
+      var excelRow = DATA_START_ROW + idx;
       var row = ws.getRow(excelRow);
       row.getCell(1).value = r.item;
       if (typeof r.qtyPerPax === 'number') row.getCell(2).value = r.qtyPerPax;
@@ -479,15 +582,15 @@
       row.getCell(3).value = r.unit || '';
       if (typeof r.pax === 'number') row.getCell(4).value = r.pax;
       else row.getCell(4).value = r.pax === '' ? '' : r.pax;
-      /* Total needed: plain number (qty×pax) — never a formula string. */
       row.getCell(5).value = totalNeededCell(r, excelRow);
       row.getCell(6).value = r.batPo || '';
       row.getCell(7).value = r.section || '';
       row.getCell(8).value = r.prepDay || '';
       row.getCell(9).value = r.sourceTab || '';
       row.getCell(10).value = r.staff || '';
-      for (var c = 1; c <= 10; c++) styleDataCell(row.getCell(c));
-      /* Pastel Prep day fill — distinct colour per actual prep-date group. */
+      row.getCell(DONE_COL).value = DONE_UNCHECKED;
+      for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
+      row.getCell(DONE_COL).alignment = { horizontal: 'center', vertical: 'middle' };
       if (!colourMap) colourMap = {};
       var gid = r.prepColourId || prepColourGroupId(r.prepDay, r.actualPrep);
       var pastel = pastelForGroup(gid, colourMap);
@@ -503,55 +606,129 @@
     COL_WIDTHS.forEach(function (w, i) {
       ws.getColumn(i + 1).width = w;
     });
-    var lastRow = Math.max(2, rows.length + 2);
+
+    var lastDataRow = Math.max(HEADER_ROW, DATA_START_ROW + rows.length - 1);
+    if (rows.length === 0) lastDataRow = HEADER_ROW;
     ws.autoFilter = {
-      from: { row: 2, column: 1 },
-      to: { row: lastRow, column: 10 }
+      from: { row: HEADER_ROW, column: 1 },
+      to: { row: Math.max(HEADER_ROW, lastDataRow), column: lastCol }
     };
+
+    /* DONE tick dropdown — ☐ / ☑ (prints as empty box; pen-friendly) */
+    var doneRange = colLetter(DONE_COL) + DATA_START_ROW + ':' + colLetter(DONE_COL) + Math.max(DATA_START_ROW, lastDataRow + 50);
+    try {
+      ws.dataValidations.add(doneRange, {
+        type: 'list',
+        allowBlank: true,
+        showErrorMessage: true,
+        formulae: ['"' + DONE_UNCHECKED + ',' + DONE_CHECKED + '"']
+      });
+    } catch (e) { /* older ExcelJS */ }
+
+    /* Grey out whole row when DONE = ☑ */
+    try {
+      var cfRef = 'A' + DATA_START_ROW + ':' + colLetter(lastCol) + Math.max(DATA_START_ROW, lastDataRow + 50);
+      ws.addConditionalFormatting({
+        ref: cfRef,
+        rules: [{
+          type: 'expression',
+          formulae: ['$' + colLetter(DONE_COL) + DATA_START_ROW + '="' + DONE_CHECKED + '"'],
+          style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFD9D9D9' } } }
+        }]
+      });
+    } catch (e2) {}
+
+    /* Print: WE + section + yellow header on EVERY page */
+    ws.pageSetup = {
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      paperSize: 9,
+      printTitlesRow: String(TITLE_WE_ROW) + ':' + String(HEADER_ROW)
+    };
+    ws.headerFooter = {
+      oddHeader: '&C&B' + we,
+      evenHeader: '&C&B' + we,
+      oddFooter: '&C&B' + we + ' — Page &P of &N',
+      evenFooter: '&C&B' + we + ' — Page &P of &N'
+    };
+    ws.views = [{ state: 'frozen', ySplit: HEADER_ROW, activeCell: 'A' + DATA_START_ROW, showGridLines: true }];
   }
 
-  function fillSheetXLSX(XLSX, sheetTitle, rows) {
+  function colLetter(n) {
+    var s = '';
+    while (n > 0) {
+      var m = (n - 1) % 26;
+      s = String.fromCharCode(65 + m) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  function fillSheetXLSX(XLSX, sheetTitle, rows, weekEndingLabel) {
+    var we = weekEndingLabel || 'WEEK ENDING: ____';
     var aoa = [];
-    aoa.push([sheetTitle, '', '', '', '', '', '', '', '', '']);
+    var blank = [];
+    for (var bi = 0; bi < COL_COUNT; bi++) blank.push('');
+    var weRow = blank.slice(); weRow[0] = we;
+    var titleRow = blank.slice(); titleRow[0] = sheetTitle;
+    aoa.push(weRow);
+    aoa.push(titleRow);
     aoa.push(HEADERS.slice());
     rows.forEach(function (r, idx) {
-      var excelRow = idx + 3;
+      var excelRow = DATA_START_ROW + idx;
       var qty = r.qtyPerPax == null ? '' : r.qtyPerPax;
       var pax = r.pax === '' ? '' : r.pax;
       var tot = totalNeededCell(r, excelRow);
       if (tot === '' || tot == null) tot = '';
       aoa.push([
         r.item, qty, r.unit || '', pax, tot,
-        r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || ''
+        r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || '',
+        DONE_UNCHECKED
       ]);
     });
     var ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: COL_COUNT - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: COL_COUNT - 1 } }
+    ];
     var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
+    var weFill = { patternType: 'solid', fgColor: { rgb: 'FFF2CC' } };
     var boldH = { bold: true, name: 'Calibri', sz: 12 };
     var titleF = { bold: true, name: 'Calibri', sz: 16 };
+    var weF = { bold: true, name: 'Calibri', sz: 18 };
     var dataF = { name: 'Calibri', sz: 12 };
     var wrap = { vertical: 'center', wrapText: true };
     var thin = { style: 'thin', color: { rgb: '000000' } };
     var border = { top: thin, bottom: thin, left: thin, right: thin };
-    var a00 = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    var aWe = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    if (!ws[aWe]) ws[aWe] = { t: 's', v: we };
+    ws[aWe].s = { font: weF, fill: weFill, alignment: { horizontal: 'center', vertical: 'center' }, border: border };
+    var a00 = XLSX.utils.encode_cell({ r: 1, c: 0 });
     if (!ws[a00]) ws[a00] = { t: 's', v: sheetTitle };
     ws[a00].s = { font: titleF, alignment: { horizontal: 'center', vertical: 'center' }, border: border };
-    for (var c = 0; c < 10; c++) {
-      var ah = XLSX.utils.encode_cell({ r: 1, c: c });
+    for (var c = 0; c < COL_COUNT; c++) {
+      var ah = XLSX.utils.encode_cell({ r: 2, c: c });
       if (!ws[ah]) ws[ah] = { t: 's', v: HEADERS[c] };
       ws[ah].s = { fill: yellow, font: boldH, alignment: wrap, border: border };
     }
-    for (var r = 2; r < aoa.length; r++) {
-      for (var c2 = 0; c2 < 10; c2++) {
+    for (var r = 3; r < aoa.length; r++) {
+      for (var c2 = 0; c2 < COL_COUNT; c2++) {
         var ad = XLSX.utils.encode_cell({ r: r, c: c2 });
         if (!ws[ad]) ws[ad] = { t: 's', v: '' };
         ws[ad].s = Object.assign({}, ws[ad].s || {}, { font: dataF, alignment: { vertical: 'top', wrapText: true }, border: border });
       }
     }
     ws['!cols'] = COL_WIDTHS.map(function (w) { return { wch: w }; });
-    ws['!autofilter'] = { ref: 'A2:J2' };
-    ws['!rows'] = [{ hpt: 21 }, { hpt: 16.5 }];
+    var lastColL = XLSX.utils.encode_col(COL_COUNT - 1);
+    var lastR = Math.max(HEADER_ROW, aoa.length);
+    ws['!autofilter'] = { ref: 'A' + HEADER_ROW + ':' + lastColL + lastR };
+    ws['!rows'] = [{ hpt: 24 }, { hpt: 21 }, { hpt: 16.5 }];
+    ws['!freeze'] = 'A' + DATA_START_ROW;
+    /* SheetJS limited print titles — set where supported */
+    if (!ws['!printHeader']) ws['!printHeader'] = [];
+    ws['!margins'] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
     return ws;
   }
 
@@ -601,23 +778,26 @@
     var name = 'Prepline_Organised_' + (new Date().toISOString().slice(0, 10)) + '.xlsx';
     var totalRows = paulaRows.length;
 
+    var weInfo = resolveWeekEndingLabel(helpers, paulaRows);
+    var weLabel = weInfo.label;
+
     function withExcelJS(ExcelJS) {
       var wb = new ExcelJS.Workbook();
       wb.creator = 'Prepline by Autoprod';
       sheets.forEach(function (sh) {
         var ws = wb.addWorksheet(sh.name.slice(0, 31), {
-          views: [{ state: 'normal', showGridLines: true }]
+          views: [{ state: 'frozen', ySplit: HEADER_ROW, activeCell: 'A' + DATA_START_ROW, showGridLines: true }]
         });
-        fillSheetExcelJS(ws, sh.name, sh.rows);
+        fillSheetExcelJS(ws, sh.name, sh.rows, weLabel);
       });
       if (!sheets.length) {
         var empty = wb.addWorksheet('Sauce, Purees and Gels');
-        fillSheetExcelJS(empty, 'Sauce, Purees and Gels', []);
+        fillSheetExcelJS(empty, 'Sauce, Purees and Gels', [], weLabel);
       }
       return wb.xlsx.writeBuffer().then(function (buf) {
-        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: buf, engine: 'exceljs', layout: 'paula-sorted-az' };
+        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: buf, engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
         downloadBlob(buf, name);
-        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'exceljs', layout: 'paula-sorted-az' };
+        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
       });
     }
 
@@ -633,15 +813,15 @@
         var base = tab;
         while (used[tab.toLowerCase()]) { tab = (base.slice(0, 28) + '-' + n).slice(0, 31); n++; }
         used[tab.toLowerCase()] = true;
-        var ws = fillSheetXLSX(XLSX, sh.name, sh.rows);
+        var ws = fillSheetXLSX(XLSX, sh.name, sh.rows, weLabel);
         XLSX.utils.book_append_sheet(wb, ws, tab);
       });
       if (helpers.returnBuffer) {
         var out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: out, engine: 'xlsx', layout: 'paula-sorted-az' });
+        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: out, engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source });
       }
       XLSX.writeFile(wb, name);
-      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'xlsx', layout: 'paula-sorted-az' };
+      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
     }
 
     if (typeof document !== 'undefined') {
@@ -660,7 +840,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.13',
+    VERSION: '4.8.14',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
@@ -668,6 +848,9 @@
     prepColourGroupId: prepColourGroupId,
     pastelForGroup: pastelForGroup,
     PREP_PASTELS: PREP_PASTELS,
-    weekdayNum: weekdayNum
+    weekdayNum: weekdayNum,
+    resolveWeekEndingLabel: resolveWeekEndingLabel,
+    DONE_UNCHECKED: DONE_UNCHECKED,
+    DONE_CHECKED: DONE_CHECKED
   };
 })(typeof window !== 'undefined' ? window : globalThis);

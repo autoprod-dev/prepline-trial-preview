@@ -1375,6 +1375,17 @@
     return filtered;
   }
 
+
+  function injectWeekEndingPrintCss() {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('u47WePrintCss')) return;
+    var s = document.createElement('style');
+    s.id = 'u47WePrintCss';
+    s.textContent = '@media print{.u47-week-ending{position:fixed;top:0;left:0;right:0;z-index:9999;}' +
+      '.u47-itemview{padding-top:48px;}.u47-week-ending{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}';
+    document.head.appendChild(s);
+  }
+
   function renderByItemView(rows, deps, helpers) {
     helpers = helpers || {};
     var escH = wrapEsc(helpers.escapeHtml || esc);
@@ -1386,7 +1397,16 @@
     var unbatchBtn = helpers.unbatchButtonHtml || function () { return ''; };
 
     var html = '';
+    var weBanner = 'WEEK ENDING: ____';
+    try {
+      if (root.Prepline477 && typeof root.Prepline477.resolveWeekEndingLabel === 'function') {
+        var srcFile = (typeof sourceInfo !== 'undefined' && sourceInfo && sourceInfo.name) || '';
+        weBanner = root.Prepline477.resolveWeekEndingLabel({ sourceFileName: srcFile, getEventDateStr: helpers.getEventDateStr }, []).label;
+      }
+    } catch (eWe) {}
     html += '<div class="u47-itemview" id="u47ItemView" data-no-daynum>';
+    try { injectWeekEndingPrintCss(); } catch (eCss) {}
+    html += '<div class="u47-week-ending" role="banner">' + escH(weBanner) + '</div>';
     html += '<div class="u47-toolbar no-print">';
     html += '<div class="viewtoggle u47-itemtoggle">';
     html += '<button type="button" class="' + (state.mode === 'item' ? '' : 'secondary') + '" data-u47-mode="item">By item</button>';
@@ -1643,6 +1663,7 @@
       '.u47-merged-short{display:none;}',
       '@media (max-width:520px){.u47-merged-full{display:none;}.u47-merged-short{display:inline;}}',
       '.u47-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;align-items:center;}',
+      '.u47-week-ending{font-family:Calibri,Arial,sans-serif;font-size:18px;font-weight:700;text-align:center;padding:8px 10px;margin:0 0 8px;background:#FFF2CC;border:1px solid #000;letter-spacing:0.02em;}',
       '.u47-itemview{margin-top:8px;}',
       '.u47-filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin:0 0 12px;}',
       '.u47-filter{font-size:11px;color:var(--ink-soft,#5C5A52);display:flex;flex-direction:column;gap:2px;}',
