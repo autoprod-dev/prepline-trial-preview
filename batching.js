@@ -1,4 +1,4 @@
-/* Prepline 4.8.11 — food-type lead windows + smart-chef batching.
+/* Prepline 4.8.17 — food-type lead windows + smart-chef batching.
  * Batch key: prepCat + normalised name + method + unit (never mix food types in one pack).
  * Prep day is ALWAYS strictly before earliest member use (never same-day).
  * winMax = min(category batchWindow, row.leadDays when set) — never exceed food-type lead.
@@ -13,6 +13,9 @@
  *   - dayMoves: only applied when dest still covers every member within that pack's winMax.
  * Fish/seafood window 2 (4.8.13 Gerard): collect/trim then process/count/tray; Mon-event → Sat.
  * Veg 4.8.12: vegraw≤4 (collect/trim), vegcook≤3 (cook stages); batch only within same stage.
+ * 4.8.17 long-life (dressings, croutons, dry powders/crumbs, oils): last ~2 weeks — pack ALL
+ * week rows of the same item onto ONE prep day = up to 4 days before earliest function
+ * (Sunday never / Saturday cap). Overrides prior oils/dressing multi-pack splits.
  */
 (function (root) {
   'use strict';
@@ -447,10 +450,86 @@
     return u;
   }
 
+  /**
+   * 4.8.17 Paula: long-life mise (dressings, croutons, dry powders/crumbs, oils) keeps ~2 weeks.
+   * Batch every row of the same item this week onto one prep day ≤4 before earliest function.
+   */
+  function isLongLifeRow(row) {
+    var cat = String((row && row.prepCat) || '').toLowerCase();
+    if (cat === 'dressing' || cat === 'oil' || cat === 'dry') return true;
+    var t = String((row && (row.task || row.item)) || '').toLowerCase();
+    var name = t.split('/')[0] || t;
+    if (/\bdressing\b|\bvinaigrette\b|\baioli\b|\bmayo\b/.test(name)) return true;
+    if (/\bcrouton/.test(t)) return true;
+    if (/\b(powder|crumb|crumbs|crumble|dust|dukkah|dukka|panko|furikake)\b/.test(name)) return true;
+    if (/\boil\b/.test(name)) return true;
+    return false;
+  }
+
+  function packLongLifeAll(members, blocked, opts) {
+    opts = opts || {};
+    var remaining = (members || []).slice().sort(function (a, b) {
+      var da = dayIdx(a.eventDay), db = dayIdx(b.eventDay);
+      if (da !== db) return da - db;
+      return String((a.row && a.row.dish) || '').localeCompare(String((b.row && b.row.dish) || ''));
+    });
+    if (!remaining.length) return [];
+    var earliest = remaining[0].eventDay;
+    var latest = remaining[remaining.length - 1].eventDay;
+    var allowSat = !!state.allowSaturdayStarts;
+    var info = prepStartFromLead(earliest, 4, {
+      blockedDays: blocked,
+      allowSaturday: allowSat,
+      avoidWeekend: state.avoidWeekend !== false
+    });
+    var day = info.day || '';
+    if (day && day === earliest) {
+      var push = prepStartFromLead(earliest, 5, {
+        blockedDays: blocked,
+        allowSaturday: allowSat,
+        avoidWeekend: state.avoidWeekend !== false
+      });
+      if (push.day && push.day !== earliest) {
+        day = push.day;
+        if (push.reason) info.reason = push.reason;
+      }
+    }
+    if (day === 'Sunday') {
+      var fix = weekendAdjust('Sunday', earliest, { allowSaturday: allowSat });
+      day = fix.day;
+      if (fix.reason) info.reason = fix.reason;
+    }
+    var span = 0;
+    if (dayIdx(earliest) >= 0 && dayIdx(latest) >= 0) span = dayIdx(latest) - dayIdx(earliest);
+    var reason = info.reason || '';
+    var tag = 'Long-life: all week rows · ≤4 days before earliest function';
+    reason = reason ? (reason + ' · ' + tag) : tag;
+    if (day === 'Saturday') opts.satUsed = (opts.satUsed || 0) + 1;
+    return [{
+      members: remaining,
+      win: {
+        day: day,
+        earliestFunc: earliest,
+        latestFunc: latest,
+        span: span,
+        winMax: 4,
+        shiftReason: reason,
+        rawDay: info.raw || day,
+        exceedsLead: false,
+        longLife: true
+      }
+    }];
+  }
+
   function batchKey(row, deps) {
     var parts = parseTaskParts(row.task || row.item);
     var uk = unitKey(row.unit, deps && deps.toBaseQty);
     var cat = String((row && row.prepCat) || '').toLowerCase() || 'unknown';
+    /* 4.8.17 long-life: same item across g/ml packs together (ignore unit + cat split). */
+    if (isLongLifeRow(row)) {
+      /* name only — g/ml and method variants (bake vs prep) still one pack */
+      return 'longlife|' + parts.name;
+    }
     /* 4.8.11: food-type in key so poultry never packs with seafood under the same name. */
     return cat + '|' + parts.name + '|' + parts.method + '|' + uk;
   }
@@ -689,6 +768,10 @@
    */
   function greedyPack(members, blocked, opts) {
     opts = opts || {};
+    /* 4.8.17: long-life items → single pack for the whole week */
+    if (members && members.length && isLongLifeRow(members[0].row)) {
+      return packLongLifeAll(members, blocked, opts);
+    }
     var remaining = members.slice();
     var packs = [];
     var satUsed = opts.satUsed || 0;
@@ -1189,6 +1272,8 @@
     clampPrepToLeadWindow: clampPrepToLeadWindow,
     categoryWindow: categoryWindow,
     weekendAdjust: weekendAdjust,
+    isLongLifeRow: isLongLifeRow,
+    packLongLifeAll: packLongLifeAll,
     prepStartFromLead: prepStartFromLead,
     validDayWindow: validDayWindow,
     buildBatches: buildBatches,

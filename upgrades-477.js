@@ -1,7 +1,9 @@
-/* Prepline 4.7.7 (+… +4.8.16 week-ending title; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.17 week-ending title; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
- * Prep day | Source tab | STAFF ALLOCATED. Print titles repeat WE+section+header every page.
+ * Prep day | Source tab | STAFF ALLOCATED (est.). Print titles repeat WE+section+header every page.
+ * 4.8.17: duration estimates from Total needed + method; prep-day subtotals + chefs @ 7.5h.
+ * Paula blank when helpers.staffEstimates === false.
  */
 (function (root) {
   'use strict';
@@ -26,10 +28,10 @@
 
   var HEADERS = [
     'Item', 'Quantity per pax', 'Unit', 'PAX ', 'Total needed',
-    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED'
+    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED (est.)'
   ];
 
-  /* 10 cols (DONE tick removed 4.8.16) — widths fit landscape print */
+  /* 10 cols (DONE tick removed 4.8.17) — widths fit landscape print */
   var COL_WIDTHS = [40.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 36.75, 30.75];
   var COL_COUNT = HEADERS.length;
   /* Rows: 1=WEEK ENDING, 2=section title, 3=yellow headers, 4+=data */
@@ -215,17 +217,111 @@
     return (r && r.dish) || '';
   }
 
-  function staffAllocated(r, helpers) {
-    /* 4.8.4: always blank - Paula writes in staff numbers herself. */
-    return '';
-    if (helpers && typeof helpers.allergenText === 'function') {
-      try {
-        var t = helpers.allergenText(r.task);
-        if (t != null && String(t).trim() !== '') return String(t);
-      } catch (e) {}
+  /* ---- 4.8.17 STAFF ALLOCATED (est.) — calibrated to Gerard Sauce photo ---- */
+  var CHEF_SHIFT_HOURS = 7.5;
+  var TIME_LADDER_MIN = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360];
+
+  function snapToLadder(mins) {
+    if (!Number.isFinite(mins) || mins <= 0) return 10;
+    var L = TIME_LADDER_MIN;
+    if (mins > L[L.length - 1]) return Math.ceil(mins / 30) * 30;
+    var best = L[0], bd = Math.abs(mins - L[0]);
+    for (var i = 1; i < L.length; i++) {
+      var d = Math.abs(mins - L[i]);
+      if (d < bd || (d === bd && L[i] > best)) { best = L[i]; bd = d; }
     }
-    return '';
+    return best;
   }
+
+  function formatStaffDuration(mins) {
+    if (!Number.isFinite(mins) || mins <= 0) return '';
+    if (mins < 60) return mins + ' minutes';
+    if (mins === 60) return '1 hour';
+    if (mins === 90) return '1.5 hour';
+    if (mins % 60 === 0) return (mins / 60) + ' hour';
+    if (mins % 60 === 30) return (mins / 60) + ' hour';
+    return Math.floor(mins / 60) + ' hour ' + (mins % 60) + ' minutes';
+  }
+
+  function pickDurationProfile(task) {
+    var t = String(task || '').toLowerCase();
+    if (/shav|grate|microplane/.test(t) || /parmesan\s+shaved/.test(t)) return { base: 10, perKg: 0, name: 'shave' };
+    if (/\bwhip\b/.test(t)) return { base: 20, perKg: 0, name: 'whip' };
+    if (/\bgel\b/.test(t)) return { base: 55, perKg: 40, name: 'gel' };
+    if (/dressing|vinaigrette|aioli|mayo/.test(t)) return { base: 55, perKg: 0.5, name: 'dressing' };
+    if (/dashi/.test(t) || (/infuse/.test(t) && /sauce|cream/.test(t))) return { base: 55, perKg: 20, name: 'sauce_infuse' };
+    if (/molasses|pomegranate/.test(t) || (/jus/.test(t) && /infuse|defrost/.test(t))) return { base: 25, perKg: 12, name: 'jus_complex' };
+    if (/\bjus\b/.test(t)) return { base: 10, perKg: 0, name: 'jus_simple' };
+    if (/ragu/.test(t)) return { base: 45, perKg: 30, name: 'ragu' };
+    if (/puree|purée/.test(t)) {
+      if (/steam|pb\s*cream|cream\s*bag/.test(t) && !/cook\s*\/\s*blend/.test(t))
+        return { base: 85, perKg: 5, name: 'puree_fiddly' };
+      if (/pea\s+puree/.test(t)) return { base: 85, perKg: 5, name: 'puree_pea' };
+      return { base: 55, perKg: 2.5, name: 'puree' };
+    }
+    if (/crouton|powder|crumb|dust|dukkah|panko|furikake/.test(t)) return { base: 20, perKg: 5, name: 'dry' };
+    if (/\boil\b/.test(t.split('/')[0] || t)) return { base: 30, perKg: 5, name: 'oil' };
+    return { base: 30, perKg: 10, name: 'generic' };
+  }
+
+  function totalNeededKg(r, helpers) {
+    var n = null, unit = '';
+    if (r && r.fixedTotal != null && r.fixedTotal !== '') {
+      n = Number(String(r.fixedTotal).replace(/,/g, ''));
+      unit = String(r.unit || '').toLowerCase();
+    } else {
+      var q = r && r.qtyPerPax;
+      var p = r && r.pax;
+      var qn = (typeof q === 'number') ? q : Number(String(q == null ? '' : q).replace(/,/g, ''));
+      var pn = (typeof p === 'number') ? p : Number(String(p == null ? '' : p).replace(/,/g, ''));
+      if (Number.isFinite(qn) && Number.isFinite(pn)) n = qn * pn;
+      unit = String((r && r.unit) || '').toLowerCase();
+    }
+    /* Raw row path (before buildPaulaRows fields exist) */
+    if ((!Number.isFinite(n) || n <= 0) && r && (r.qty != null || r.task)) {
+      var qty = r.qty;
+      var q2 = (typeof qty === 'number') ? qty : Number(String(qty == null ? '' : qty).replace(/,/g, ''));
+      var paxMap = (helpers && helpers.paxByDish) || {};
+      var p2 = paxMap[r.dish];
+      if (typeof p2 !== 'number') p2 = Number(p2);
+      if (Number.isFinite(q2) && Number.isFinite(p2)) n = q2 * p2;
+      unit = String(r.unit || '').toLowerCase();
+    }
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    if (unit === 'kg' || unit === 'l' || unit === 'lt' || unit === 'litre' || unit === 'liter') return n;
+    if (unit === 'g' || unit === 'gm' || unit === 'gr' || unit === 'ml' || unit === 'millilitre') return n / 1000;
+    /* unknown unit: treat large numbers as g/ml */
+    if (n >= 50) return n / 1000;
+    return n / 1000;
+  }
+
+  function estimateStaffMinutes(r, helpers) {
+    var profile = pickDurationProfile((r && (r.task || r.item)) || '');
+    var kg = totalNeededKg(r, helpers);
+    var raw = profile.base + profile.perKg * kg;
+    return snapToLadder(raw);
+  }
+
+  function staffAllocated(r, helpers) {
+    /* Paula hand-writes staff — leave blank when explicitly disabled. */
+    if (helpers && helpers.staffEstimates === false) return '';
+    var mins = estimateStaffMinutes(r, helpers);
+    if (!mins) return '';
+    return formatStaffDuration(mins);
+  }
+
+  function chefsForMinutes(totalMins) {
+    if (!Number.isFinite(totalMins) || totalMins <= 0) return 0;
+    return Math.ceil((totalMins / 60) / CHEF_SHIFT_HOURS);
+  }
+
+  function formatPrepDaySubtotal(totalMins) {
+    var hrs = totalMins / 60;
+    var hrsLabel = (Math.round(hrs * 10) / 10) + ' hour' + (hrs === 1 ? '' : 's');
+    var chefs = chefsForMinutes(totalMins);
+    return hrsLabel + ' · ' + chefs + ' chef' + (chefs === 1 ? '' : 's') + ' @ ' + CHEF_SHIFT_HOURS + 'h';
+  }
+
 
   function parsePerPax(r, helpers) {
     if (helpers && typeof helpers.exportPerPax === 'function') {
@@ -403,7 +499,7 @@
 
 
   /**
-   * 4.8.16: Move leading "DF " off the A–Z key so "DF Asparagus …" sorts with Asparagus.
+   * 4.8.17: Move leading "DF " off the A–Z key so "DF Asparagus …" sorts with Asparagus.
    * "DF Asparagus ( NO BUTTER) / Trim…" → "Asparagus DF ( NO BUTTER) / Trim…"
    * Already-suffixed names ("Kombu Powder DF", "… GF DF") are left alone.
    */
@@ -455,9 +551,9 @@
       var sheet = sheetForItem(r.task, sec);
       /* 4.8.7: Section text always matches the tab (overrides colour/keyword when heuristics move the row). */
       var sectionOut = sheet === OTHER_SHEET ? (sec || '—') : sectionForSheet(sheet);
-      /* 4.8.16: DF prefix → name DF so A–Z groups with the ingredient. */
+      /* 4.8.17: DF prefix → name DF so A–Z groups with the ingredient. */
       var itemOut = renameDfPrefix(r.task);
-      out.push({
+      var rowOut = {
         item: itemOut,
         qtyPerPax: pp.n,
         unit: pp.unit || '',
@@ -468,7 +564,6 @@
         section: sectionOut,
         prepDay: prepLab,
         sourceTab: src,
-        staff: staffAllocated(r, helpers),
         sheet: sheet,
         itemNorm: String(itemOut || '').toLowerCase().replace(/\s+/g, ' ').trim(),
         dish: r.dish || '',
@@ -478,8 +573,19 @@
         actualPrep: actualPrepSortKey(prepLab, src, r.dish, helpers),
         colourSection: sec || '',
         smartCovers: smartInfo && smartInfo.covers ? smartInfo.covers : '',
-        smartBatchKey: smartInfo && smartInfo.batchKey ? smartInfo.batchKey : ''
-      });
+        smartBatchKey: smartInfo && smartInfo.batchKey ? smartInfo.batchKey : '',
+        task: r.task,
+        qty: r.qty
+      };
+      /* Estimate from Total needed + method; Paula blank when staffEstimates === false */
+      if (helpers && helpers.staffEstimates === false) {
+        rowOut.staff = '';
+        rowOut.staffMinutes = 0;
+      } else {
+        rowOut.staffMinutes = estimateStaffMinutes(rowOut, helpers);
+        rowOut.staff = formatStaffDuration(rowOut.staffMinutes);
+      }
+      out.push(rowOut);
     });
     out.forEach(function (row) {
       row.prepColourId = prepColourGroupId(row.prepDay, row.actualPrep);
@@ -495,20 +601,17 @@
       var st = sheetState || (typeof root.Prepline488.getSheetState === 'function' ? root.Prepline488.getSheetState() : null);
       out = root.Prepline488.applySheetState(out, st);
     } else if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
-      /* 4.8.16 smart chef: prep-date → function/event order → Item A–Z → Source */
+      /* 4.8.17 Gerard: Prep day → Item A–Z; Source tiebreak only */
       out.sort(root.Prepline488.smartChefSort);
     } else {
       out.sort(function (a, b) {
         if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
-        var ea = (typeof a.eventSort === 'number') ? a.eventSort : 9999;
-        var eb = (typeof b.eventSort === 'number') ? b.eventSort : 9999;
-        if (ea !== eb) return ea - eb;
+        if (a.itemNorm < b.itemNorm) return -1;
+        if (a.itemNorm > b.itemNorm) return 1;
         var sa = String(a.sourceTab || '').toLowerCase();
         var sb = String(b.sourceTab || '').toLowerCase();
         if (sa < sb) return -1;
         if (sa > sb) return 1;
-        if (a.itemNorm < b.itemNorm) return -1;
-        if (a.itemNorm > b.itemNorm) return 1;
         return 0;
       });
     }
@@ -598,39 +701,67 @@
     });
     head.height = 16.5;
 
-    rows.forEach(function (r, idx) {
-      var excelRow = DATA_START_ROW + idx;
-      var row = ws.getRow(excelRow);
-      row.getCell(1).value = r.item;
-      if (typeof r.qtyPerPax === 'number') row.getCell(2).value = r.qtyPerPax;
-      else row.getCell(2).value = r.qtyPerPax == null ? '' : r.qtyPerPax;
-      row.getCell(3).value = r.unit || '';
-      if (typeof r.pax === 'number') row.getCell(4).value = r.pax;
-      else row.getCell(4).value = r.pax === '' ? '' : r.pax;
-      row.getCell(5).value = totalNeededCell(r, excelRow);
-      row.getCell(6).value = r.batPo || '';
-      row.getCell(7).value = r.section || '';
-      row.getCell(8).value = r.prepDay || '';
-      row.getCell(9).value = r.sourceTab || '';
-      row.getCell(10).value = r.staff || '';
-      for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
-      if (!colourMap) colourMap = {};
-      var gid = r.prepColourId || prepColourGroupId(r.prepDay, r.actualPrep);
-      var pastel = pastelForGroup(gid, colourMap);
-      row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pastel } };
-      var len = String(r.item || '').length;
-      var h = 18;
-      if (len > 45) h = 36;
-      if (len > 80) h = 54;
-      if (len > 120) h = 72;
-      row.height = h;
-    });
+    var excelRow = DATA_START_ROW;
+    var filterEndRow = HEADER_ROW;
+    var i = 0;
+    while (i < rows.length) {
+      var gid0 = rows[i].prepColourId || prepColourGroupId(rows[i].prepDay, rows[i].actualPrep);
+      var chunkStart = i;
+      var chunkMins = 0;
+      while (i < rows.length) {
+        var gi = rows[i].prepColourId || prepColourGroupId(rows[i].prepDay, rows[i].actualPrep);
+        if (gi !== gid0) break;
+        var r = rows[i];
+        var row = ws.getRow(excelRow);
+        row.getCell(1).value = r.item;
+        if (typeof r.qtyPerPax === 'number') row.getCell(2).value = r.qtyPerPax;
+        else row.getCell(2).value = r.qtyPerPax == null ? '' : r.qtyPerPax;
+        row.getCell(3).value = r.unit || '';
+        if (typeof r.pax === 'number') row.getCell(4).value = r.pax;
+        else row.getCell(4).value = r.pax === '' ? '' : r.pax;
+        row.getCell(5).value = totalNeededCell(r, excelRow);
+        row.getCell(6).value = r.batPo || '';
+        row.getCell(7).value = r.section || '';
+        row.getCell(8).value = r.prepDay || '';
+        row.getCell(9).value = r.sourceTab || '';
+        row.getCell(10).value = r.staff || '';
+        for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
+        if (!colourMap) colourMap = {};
+        var pastel = pastelForGroup(gid0, colourMap);
+        row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pastel } };
+        var len = String(r.item || '').length;
+        var h = 18;
+        if (len > 45) h = 36;
+        if (len > 80) h = 54;
+        if (len > 120) h = 72;
+        row.height = h;
+        chunkMins += Number(r.staffMinutes) || 0;
+        excelRow++;
+        i++;
+      }
+      filterEndRow = excelRow - 1;
+      /* Prep-day subtotal row (outside AutoFilter range after last data of group) */
+      if (chunkMins > 0 || (i - chunkStart) > 0) {
+        var sub = ws.getRow(excelRow);
+        var dayLab = rows[chunkStart].prepDay || '';
+        sub.getCell(1).value = '— ' + dayLab + ' subtotal —';
+        for (var sc = 2; sc <= 9; sc++) sub.getCell(sc).value = '';
+        sub.getCell(10).value = formatPrepDaySubtotal(chunkMins);
+        for (var sc2 = 1; sc2 <= lastCol; sc2++) {
+          styleDataCell(sub.getCell(sc2));
+          sub.getCell(sc2).font = { name: 'Calibri', size: 11, bold: true, italic: true };
+        }
+        sub.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pastelForGroup(gid0, colourMap) } };
+        sub.height = 18;
+        excelRow++;
+      }
+    }
 
     COL_WIDTHS.forEach(function (w, i) {
       ws.getColumn(i + 1).width = w;
     });
 
-    var lastDataRow = Math.max(HEADER_ROW, DATA_START_ROW + rows.length - 1);
+    var lastDataRow = Math.max(HEADER_ROW, filterEndRow);
     if (rows.length === 0) lastDataRow = HEADER_ROW;
     ws.autoFilter = {
       from: { row: HEADER_ROW, column: 1 },
@@ -675,17 +806,33 @@
     aoa.push(weRow);
     aoa.push(titleRow);
     aoa.push(HEADERS.slice());
-    rows.forEach(function (r, idx) {
-      var excelRow = DATA_START_ROW + idx;
-      var qty = r.qtyPerPax == null ? '' : r.qtyPerPax;
-      var pax = r.pax === '' ? '' : r.pax;
-      var tot = totalNeededCell(r, excelRow);
-      if (tot === '' || tot == null) tot = '';
+    var xi = 0;
+    var xExcelRow = DATA_START_ROW;
+    while (xi < rows.length) {
+      var xgid = rows[xi].prepColourId || prepColourGroupId(rows[xi].prepDay, rows[xi].actualPrep);
+      var xChunkMins = 0;
+      var xDay = rows[xi].prepDay || '';
+      while (xi < rows.length) {
+        var xgi = rows[xi].prepColourId || prepColourGroupId(rows[xi].prepDay, rows[xi].actualPrep);
+        if (xgi !== xgid) break;
+        var xr = rows[xi];
+        var qty = xr.qtyPerPax == null ? '' : xr.qtyPerPax;
+        var pax = xr.pax === '' ? '' : xr.pax;
+        var tot = totalNeededCell(xr, xExcelRow);
+        if (tot === '' || tot == null) tot = '';
+        aoa.push([
+          xr.item, qty, xr.unit || '', pax, tot,
+          xr.batPo || '', xr.section || '', xr.prepDay || '', xr.sourceTab || '', xr.staff || ''
+        ]);
+        xChunkMins += Number(xr.staffMinutes) || 0;
+        xExcelRow++;
+        xi++;
+      }
       aoa.push([
-        r.item, qty, r.unit || '', pax, tot,
-        r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || ''
+        '— ' + xDay + ' subtotal —', '', '', '', '', '', '', xDay, '', formatPrepDaySubtotal(xChunkMins)
       ]);
-    });
+      xExcelRow++;
+    }
     var ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!merges'] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: COL_COUNT - 1 } },
@@ -838,12 +985,16 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.16',
+    VERSION: '4.8.17',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
     actualPrepSortKey: actualPrepSortKey,
     renameDfPrefix: renameDfPrefix,
+    estimateStaffMinutes: estimateStaffMinutes,
+    formatStaffDuration: formatStaffDuration,
+    formatPrepDaySubtotal: formatPrepDaySubtotal,
+    CHEF_SHIFT_HOURS: CHEF_SHIFT_HOURS,
     prepColourGroupId: prepColourGroupId,
     pastelForGroup: pastelForGroup,
     PREP_PASTELS: PREP_PASTELS,
