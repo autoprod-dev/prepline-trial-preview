@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.21-trial">
+<meta name="prepline-version" content="4.8.22-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -102,6 +102,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-489.js"></script>
 <script src="upgrades-4820.js"></script>
 <script src="upgrades-4821.js"></script>
+<script src="upgrades-4822.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -941,7 +942,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.21</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.22</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -1275,7 +1276,8 @@ function origRefLines(entry, dish){
   const functionDate = dish ? getEventDateStr(dish) : null;
   return entry.refRows.map(r=>{
     const m = poMatchFor(r.name, {functionDate, forFill:true});
-    return (m && m.status==='ok' && m.item) ? {row:r, text:poBoxText(m.item)} : null;
+    const txt = (m && m.status==='ok') ? poRefFillText(m) : '';
+    return txt ? {row:r, text:txt} : null;
   }).filter(Boolean);
 }
 const origCompCache = {};
@@ -1321,7 +1323,7 @@ function renderOriginalsTab(){
       <button class="ghost" type="button" onclick="printOriginalsAll()">🖨️ Print the original pages</button>
       <button class="ghost" type="button" onclick="(window.exportOriginalXlsx479||window.exportAsIsXlsxWithPhotos||function(){})('upload')" title="One tab per dish with photos embedded when present">📊 Download original .xlsx (with photos)</button>
     </div>
-    <div class="meta no-print">${n} page(s) as uploaded. ${POS.length ? `The <b>Ref #</b> box shows the supplier and delivery date from the uploaded requisition(s) for <b>${filled}</b> ingredient(s) whose delivery is within 4 days before the function; ingredients with no match, delivery outside that window, or sub-recipes stay blank.` : 'Upload the requisition sheet(s) with the production tools to fill the Ref # boxes.'}</div>
+    <div class="meta no-print">${n} page(s) as uploaded. ${POS.length ? `The <b>Ref #</b> box shows the supplier and delivery date from the uploaded requisition(s) for <b>${filled}</b> ingredient(s) whose delivery is within 3 days before the function (on the day or 1–3 days prior); ingredients with no match, delivery outside that window, or sub-recipes stay blank.` : 'Upload the requisition sheet(s) with the production tools to fill the Ref # boxes.'}</div>
     ${dishes.map(d=>originalPageImages[d].map((e,i)=>`<div class="orig-page"><div class="orig-head no-print"><b>${escapeHtml(cleanDishName(d))}</b> <span class="meta">${escapeHtml(e.pageLabel||'')}</span> <button class="ghost" type="button" onclick="openOriginalViewer('${encodeURIComponent(d).replace(/'/g,'%27')}')">📖 View original</button></div><img class="orig-img" data-od="${escapeHtml(encodeURIComponent(d))}" data-oi="${i}" src="${e.dataUrl}" alt="${escapeHtml(cleanDishName(d))}"></div>`).join('')).join('')}
   </div>`;
 }
@@ -3582,10 +3584,10 @@ function poAllItems(){ const out = []; POS.forEach((po, pi)=>po.items.forEach((i
 // manual override per ingredient: INGINFO-like store (ingredient key -> "pi:ii" or "none")
 const PO_LINK_KEY = 'prepline.poLinks.v1';
 let poLinks = (function(){ try{ return JSON.parse(localStorage.getItem(PO_LINK_KEY)||'{}') || {}; }catch(e){ return {}; } })();
-// 4.4.4 / preview 4.6.1: Ref# fill only when requisition Required Delivery Date is within 0..4 days
-// before the dish function date (inclusive; never after). Among same/similar matches
-// across multiple requisition PDFs, pick the delivery closest to (and not after) the function.
-const PO_DELIVERY_WINDOW_DAYS = 4;
+// 4.4.4 / preview 4.6.1 / 4.8.22: Ref# fill only when requisition Required Delivery Date is within 0..3 days
+// before the dish BAT/function date (inclusive; never after, never 4+). Among matches in window,
+// list ALL deliveries for the item nearest-first ("Supplier dd/mm/yyyy; Supplier dd/mm/yyyy").
+const PO_DELIVERY_WINDOW_DAYS = 3;
 function poParseDate(s){
   const m = String(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!m) return null;
@@ -3635,23 +3637,51 @@ function poMatchFor(task, opts){
     const daysBefore = functionDate ? poDaysBefore(it.po && it.po.delivery, functionDate) : null;
     cands.push({item: it, score: sc, daysBefore});
   });
+  // 4.8.22: all in-window deliveries for this ingredient, nearest to BAT/event first
+  function poCollectInWindow(list, minScore){
+    const win = (list || []).filter(c=>c.daysBefore !== null && c.daysBefore >= 0 && c.daysBefore <= PO_DELIVERY_WINDOW_DAYS && c.score >= minScore)
+      .slice()
+      .sort((a,b)=>(a.daysBefore - b.daysBefore) || (b.score - a.score));
+    const seen = new Set(), items = [], days = [];
+    win.forEach(c=>{
+      const k = String(poSupplierShort(c.item.supplier)||'').toLowerCase() + '|' + String((c.item.po && c.item.po.delivery) || '');
+      if (seen.has(k)) return;
+      seen.add(k);
+      items.push(c.item);
+      days.push(c.daysBefore);
+    });
+    return {items, daysBefore: days.length ? days[0] : null, score: win.length ? win[0].score : 0};
+  }
+  function poAttachBox(res){
+    if (!res) return res;
+    if (res.items && res.items.length){
+      res.item = res.items[0];
+      res.boxText = poBoxTextAll(res.items);
+    } else if (res.item){
+      res.items = [res.item];
+      res.boxText = poBoxText(res.item);
+    }
+    return res;
+  }
   const link = poLinks[ingKey(task)];
   let res;
   if (link === 'none') res = {status:'none', manual:true};
   else if (link && poMatchCache.items.find(i=>(i.po.req+'#'+i.n)===link)){
     const item = poMatchCache.items.find(i=>(i.po.req+'#'+i.n)===link);
     if (functionDate && !poDeliveryInWindow(item.po && item.po.delivery, functionDate))
-      res = {status:'nodelivery', reason:'no delivery within 4 days', item, score:1, manual:true, daysBefore: poDaysBefore(item.po && item.po.delivery, functionDate)};
-    else res = {status:'ok', item, score:1, manual:true, daysBefore: functionDate ? poDaysBefore(item.po && item.po.delivery, functionDate) : null};
+      res = {status:'nodelivery', reason:'no delivery within 3 days', item, score:1, manual:true, daysBefore: poDaysBefore(item.po && item.po.delivery, functionDate)};
+    else res = poAttachBox({status:'ok', item, items:[item], score:1, manual:true, daysBefore: functionDate ? poDaysBefore(item.po && item.po.delivery, functionDate) : null});
   } else {
     const nameHits = cands.filter(c=>c.score >= PO_CHECK);
     if (functionDate){
-      const inWin = cands.filter(c=>c.daysBefore !== null && c.daysBefore >= 0 && c.daysBefore <= PO_DELIVERY_WINDOW_DAYS);
-      const best = poPickBestCand(inWin);
-      if (best && best.score >= PO_CHECK)
-        res = {status: best.score >= PO_OK ? 'ok' : 'check', item: best.item, score: best.score, daysBefore: best.daysBefore};
+      const okPack = poCollectInWindow(cands, PO_OK);
+      const checkPack = poCollectInWindow(cands, PO_CHECK);
+      if (okPack.items.length)
+        res = poAttachBox({status:'ok', items: okPack.items, score: okPack.score, daysBefore: okPack.daysBefore});
+      else if (checkPack.items.length)
+        res = poAttachBox({status:'check', items: checkPack.items, score: checkPack.score, daysBefore: checkPack.daysBefore});
       else if (nameHits.length)
-        res = {status:'nodelivery', reason:'no delivery within 4 days', best: poPickBestCand(nameHits), score: (poPickBestCand(nameHits)||{}).score || 0};
+        res = {status:'nodelivery', reason:'no delivery within 3 days', best: poPickBestCand(nameHits), score: (poPickBestCand(nameHits)||{}).score || 0};
       else
         res = {status:'none', best: poPickBestCand(cands)};
     } else if (forFill){
@@ -3660,7 +3690,7 @@ function poMatchFor(task, opts){
         : {status:'none', best: poPickBestCand(cands)};
     } else {
       const best = poPickBestCand(cands);
-      res = !best || best.score < PO_CHECK ? {status:'none', best} : {status: best.score >= PO_OK ? 'ok' : 'check', item: best.item, score: best.score};
+      res = !best || best.score < PO_CHECK ? {status:'none', best} : poAttachBox({status: best.score >= PO_OK ? 'ok' : 'check', items:[best.item], score: best.score});
     }
   }
   return (poMatchCache.byKey[cacheKey] = res);
@@ -3687,6 +3717,9 @@ function poNumFor(it){
 // No codes, labels, PO / REQ numbers, prices, quantities or hint that it came from a requisition.
 function poSupplierShort(n){ return String(n||'').replace(/\b(pty\.?|ltd\.?|limited|inc\.?|p\/l)\b/gi,' ').replace(/\bprovidores?\b/gi,' ').replace(/[,.]+\s*$/,'').replace(/\s+/g,' ').trim(); }
 function poBoxText(it){ const d = it.po && it.po.delivery ? it.po.delivery.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4}).*$/, (m,a,b,c)=>String(a).padStart(2,'0')+'/'+String(b).padStart(2,'0')+'/'+c) : ''; return [poSupplierShort(it.supplier), d].filter(Boolean).join(' '); }
+// 4.8.22: multiple in-window deliveries → "Supplier dd/mm/yyyy; Supplier dd/mm/yyyy" (nearest first)
+function poBoxTextAll(items){ return (items || []).map(poBoxText).filter(Boolean).join('; '); }
+function poRefFillText(m){ if (!m) return ''; if (m.boxText) return m.boxText; if (m.items && m.items.length) return poBoxTextAll(m.items); return m.item ? poBoxText(m.item) : ''; }
 function poRefText(it){
   const po = it.po, n = poNumFor(it);
   return [it.supplier, poLongDate(po.delivery), poTitle(it.desc), it.qty!==null ? fmtNum(it.qty)+' '+it.uom : ''].filter(Boolean).join(', ') + (n.txt ? ' · ' + n.txt + (n.ok ? '' : ' (unverified)') : '');
@@ -3699,7 +3732,7 @@ function poChipHtml(r){
   if (!poInViews) return '';
   const m = poMatchFor(r.task, {functionDate: getEventDateStr(r.dish)}); if (!m || m.status==='sub') return '';
   if (m.status==='none') return ' <span class="po-chip none" title="No line on the uploaded purchase orders matches this ingredient.">no PO</span>';
-  if (m.status==='nodelivery') return ' <span class="po-chip none" title="A PO line matches by name, but no requisition delivery is within 4 days before the function.">no delivery within 4 days</span>';
+  if (m.status==='nodelivery') return ' <span class="po-chip none" title="A PO line matches by name, but no requisition delivery is within 3 days before the function.">no delivery within 3 days</span>';
   const it = m.item, po = it.po;
   const tip = `${it.supplier}${po.poNumbers.length?' · PO '+poNumberText(po):''} · line ${it.n}: ${it.desc} · ${it.qty!==null?it.qty+' '+it.uom:''} · delivery ${po.delivery}${m.status==='check'?' — weak name match, please check':''}`;
   return ` <span class="po-chip ${m.status}" title="${escapeHtml(tip)}"><b class="po-ref-l">REF</b> ${escapeHtml(poRefText(it))}${m.status==='check'?' (check)':''}</span>`;
@@ -3726,13 +3759,13 @@ function poPanelHtml(){
       <h3 style="margin:0;">🧾 Requisitions (${POS.length})</h3>
       <button class="ghost" type="button" onclick="clearPOs()">Clear requisitions</button>
     </div>
-    <div class="meta" style="margin:6px 0;">The supplier and delivery date fill the <b>Ref #</b> box only when the requisition delivery is within 4 days before that dish's function date (closest match wins if the same item appears on several PDFs). See <b>📖 Original PTs</b> / <b>📖 View original</b>.</div>
+    <div class="meta" style="margin:6px 0;">The supplier and delivery date fill the <b>Ref #</b> box only when the requisition delivery is within 3 days before that dish's BAT/function date (on the day or 1–3 days prior). If the same item has several deliveries in that window, all are listed nearest-first. See <b>📖 Original PTs</b> / <b>📖 View original</b>.</div>
     <table class="po-table"><thead><tr><th>PO number(s)</th><th>Delivery</th><th>Suppliers</th><th>Lines</th><th>File</th></tr></thead><tbody>
     ${POS.map(po=>`<tr><td><b>${po.poNumbers.length?escapeHtml(poNumberText(po)):'no PO number'}</b>${po.req?'<div class="meta">'+escapeHtml(po.req)+'</div>':''}${po.subject?'<div class="meta">'+escapeHtml(po.subject)+'</div>':''}</td><td>${escapeHtml(po.delivery||'—')}</td><td>${escapeHtml([...new Set(po.items.map(i=>i.supplier))].join(', '))}</td><td>${po.items.length}</td><td class="meta">${escapeHtml(po.file||'')}</td></tr>`).join('')}
     </tbody></table>
-    ${st ? `<div class="po-stats"><b>${st.ok}</b> of ${st.total} ingredients matched to a PO line${st.check?`, <b>${st.check}</b> to check`:''}${st.nodelivery?`, <b>${st.nodelivery}</b> no delivery within 4 days`:''}, <b>${st.none}</b> with no PO. ${st.unusedLines.length} PO line(s) not used by any recipe.</div>` : '<div class="meta">Upload the production tools to match their ingredients to these orders.</div>'}
+    ${st ? `<div class="po-stats"><b>${st.ok}</b> of ${st.total} ingredients matched to a PO line${st.check?`, <b>${st.check}</b> to check`:''}${st.nodelivery?`, <b>${st.nodelivery}</b> no delivery within 3 days`:''}, <b>${st.none}</b> with no PO. ${st.unusedLines.length} PO line(s) not used by any recipe.</div>` : '<div class="meta">Upload the production tools to match their ingredients to these orders.</div>'}
     ${listRows.length ? `<details class="po-fix"><summary>Check or link ingredients (${listRows.length})</summary>
-      ${listRows.map(x=>{ const t=x.task; const m = poMatchFor(t, {functionDate:x.functionDate}); const flag = m.status==='check'?'<span class="po-chip check">check</span>':(m.status==='nodelivery'?'<span class="po-chip none">no delivery within 4 days</span>':'<span class="po-chip none">no PO</span>'); return `<div class="row" style="gap:8px; align-items:center; margin:4px 0;"><span style="flex:0 0 300px;">${escapeHtml(t)} ${flag}</span>
+      ${listRows.map(x=>{ const t=x.task; const m = poMatchFor(t, {functionDate:x.functionDate}); const flag = m.status==='check'?'<span class="po-chip check">check</span>':(m.status==='nodelivery'?'<span class="po-chip none">no delivery within 3 days</span>':'<span class="po-chip none">no PO</span>'); return `<div class="row" style="gap:8px; align-items:center; margin:4px 0;"><span style="flex:0 0 300px;">${escapeHtml(t)} ${flag}</span>
         <select onchange="poLinkSet('${encName(t)}', this.value)"><option value="">${m.status==='check'?'Suggested: '+escapeHtml(m.item.supplier+' · '+m.item.desc):(m.status==='nodelivery'?'Name match outside 4-day window':'— not on a PO —')}</option><option value="none" ${m.manual&&m.status==='none'?'selected':''}>Not on a PO</option>${opts.map(i=>`<option value="${escapeHtml(i.po.req+'#'+i.n)}">${escapeHtml(i.supplier+' · '+i.desc+' ('+(i.qty!==null?i.qty+' '+i.uom:'')+') · del '+(i.po.delivery||'?'))}</option>`).join('')}</select></div>`; }).join('')}
     </details>` : ''}
     ${st && st.unusedLines.length ? `<details class="po-fix"><summary>PO lines not used by any recipe (${st.unusedLines.length})</summary><ul>${st.unusedLines.map(i=>`<li>${escapeHtml(i.supplier)} · ${escapeHtml(i.desc)} · ${i.qty!==null?escapeHtml(i.qty+' '+i.uom):''} <span class="meta">(${escapeHtml(i.po.req)})</span></li>`).join('')}</ul></details>` : ''}
@@ -7085,7 +7118,7 @@ const ORDER_GROUP_FOOT = [];   // feature 6 adds a cost total line: (group) => h
 function poOrderCell(L, print){
   const m = L.po; if (!m || m.status==='sub') return '';
   if (m.status==='none') return print ? 'not on a PO' : '<span class="po-chip none">no PO</span>';
-  if (m.status==='nodelivery') return print ? 'no delivery within 4 days' : '<span class="po-chip none">no delivery within 4 days</span>';
+  if (m.status==='nodelivery') return print ? 'no delivery within 3 days' : '<span class="po-chip none">no delivery within 3 days</span>';
   const it = m.item, po = it.po;
   const txt = poRefText(it) + (m.status==='check'?' (check)':'');
   return print ? escapeHtml(txt) : `<span class="po-chip ${m.status}" title="${escapeHtml(it.supplier+' · '+it.desc)}">🧾 ${escapeHtml(txt)}</span>`;
@@ -8337,9 +8370,18 @@ let pbSorting = false;
 // ---------- print as-is ----------
 function asIsModelFromRows(){
   // from an uploaded sheet: the rows as read, colour from each row's group
+  // 4.8.22: Ref# autofill from POs (Supplier dd/mm/yyyy; multi in-window nearest-first)
   const dishes = [];
   (typeof ROWS!=='undefined'?ROWS:[]).forEach(r=>{ let d = dishes.find(x=>x.name===r.dish); if (!d){ d = {name:r.dish, pax:(typeof paxByDish!=='undefined' && paxByDish[r.dish]!=null)?paxByDish[r.dish]:'', srcSheet:r.srcSheet||'', rows:[]}; dishes.push(d); }
-    const c = pbCatForSection(r.section); d.rows.push({item:r.task, qty:r.qty, unit:r.unit||'', cat:c?c.k:'', section:r.section||'', day:r.day||'', ref:''}); });
+    const c = pbCatForSection(r.section);
+    let ref = '';
+    try {
+      if (typeof poMatchFor === 'function' && POS && POS.length) {
+        const m = poMatchFor(r.task, {functionDate: getEventDateStr(r.dish), forFill:true});
+        if (m && m.status === 'ok') ref = (typeof poRefFillText === 'function' ? poRefFillText(m) : (m.boxText || ''));
+      }
+    } catch (e) { ref = ''; }
+    d.rows.push({item:r.task, qty:r.qty, unit:r.unit||'', cat:c?c.k:'', section:r.section||'', day:r.day||'', ref}); });
   return dishes;
 }
 function asIsHtml(dishes){
@@ -8538,7 +8580,7 @@ function pbImportWorkbook(wb, forced){
       const s = pbSectionFromText(cell('section')); x.section = s.section;
       x.cat = pbRowColour(ws, r, m, legend) || s.cat;
       if (x.cat && pbCat(x.cat).sec === x.section) x.section = '';      // the colour already says it
-      x.day = pbDay(cell('day')); x.ref = String(cell('ref')||'').trim().slice(0,40);
+      x.day = pbDay(cell('day')); x.ref = String(cell('ref')||'').trim().slice(0,160);
       if (!byDish[curDish]){ byDish[curDish] = []; order.push(curDish); }
       byDish[curDish].push(x);
     }

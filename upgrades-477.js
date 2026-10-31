@@ -1121,7 +1121,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.21',
+    VERSION: '4.8.22',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
