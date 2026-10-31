@@ -1,9 +1,11 @@
-/* Prepline 4.7.7 (+… +4.8.17 week-ending title; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.18 Sheets H→A→I sort; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (est.). Print titles repeat WE+section+header every page.
  * 4.8.17: duration estimates from Total needed + method; prep-day subtotals + chefs @ 7.5h.
  * Paula blank when helpers.staffEstimates === false.
+ * 4.8.18: every yellow-header path sorts data rows (from row 4) by Prep day label A–Z,
+ * then Item A–Z, then Source tab A–Z (Gerard Sheets H→A→I). AutoFilter from row 3.
  */
 (function (root) {
   'use strict';
@@ -590,22 +592,34 @@
     out.forEach(function (row) {
       row.prepColourId = prepColourGroupId(row.prepDay, row.actualPrep);
     });
-    /* Apply organised sheet sort/filter state when provided (Excel-style menus). */
+    /* Apply organised sheet FILTERS when provided; always finish with Gerard
+       Sheets sort (Col H Prep day A–Z → Col A Item → Col I Source), asc.
+       Rows 1–3 stay fixed in the workbook (WE / section / yellow header);
+       only data from row 4 is ordered. */
     var sheetState = (helpers && helpers.organisedSheetState) || null;
     var use488 = root.Prepline488 && typeof root.Prepline488.applySheetState === 'function';
     if (helpers && helpers.organisedSheetState === false) {
-      /* explicit opt-out */
       use488 = false;
     }
     if (use488) {
       var st = sheetState || (typeof root.Prepline488.getSheetState === 'function' ? root.Prepline488.getSheetState() : null);
-      out = root.Prepline488.applySheetState(out, st);
-    } else if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
-      /* 4.8.17 Gerard: Prep day → Item A–Z; Source tiebreak only */
+      /* Keep filters/search/colourFilter; force H→A→I A–Z (ignore menu sortMode). */
+      var stExport = Object.assign({}, st || {}, {
+        sortCol: 'prepDay',
+        sortDir: 'asc',
+        sortMode: '',
+        customOrder: null
+      });
+      out = root.Prepline488.applySheetState(out, stExport);
+    }
+    if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
       out.sort(root.Prepline488.smartChefSort);
     } else {
       out.sort(function (a, b) {
-        if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
+        var pa = String(a.prepDay || '').toLowerCase();
+        var pb = String(b.prepDay || '').toLowerCase();
+        if (pa < pb) return -1;
+        if (pa > pb) return 1;
         if (a.itemNorm < b.itemNorm) return -1;
         if (a.itemNorm > b.itemNorm) return 1;
         var sa = String(a.sourceTab || '').toLowerCase();
@@ -761,6 +775,8 @@
       ws.getColumn(i + 1).width = w;
     });
 
+    /* AutoFilter: header on row 3; data sortable from row 4. Include through last
+       data row of the final prep-day group (subtotals sit after each group). */
     var lastDataRow = Math.max(HEADER_ROW, filterEndRow);
     if (rows.length === 0) lastDataRow = HEADER_ROW;
     ws.autoFilter = {
@@ -985,7 +1001,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.17',
+    VERSION: '4.8.18',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,

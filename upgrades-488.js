@@ -1,4 +1,4 @@
-/* Prepline 4.8.17 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.18 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -22,7 +22,7 @@
 
   /* ---------- Sheet sort/filter state (in-memory; Excel Autofilter is separate) ---------- */
   var sheetState = {
-    sortCol: 'actualPrep',
+    sortCol: 'prepDay',
     sortDir: 'asc',
     filters: {}
   };
@@ -59,16 +59,21 @@
     var col = (st && st.sortCol) || 'actualPrep';
     var dir = (st && st.sortDir) === 'desc' ? -1 : 1;
     list.sort(function (a, b) {
-      /* 4.8.17 Gerard: Prep day → Item A–Z; Source only tiebreak after item.
-         User sortCol (when not one of the primary keys) is a final tie-break. */
-      if (a.actualPrep !== b.actualPrep) return (a.actualPrep - b.actualPrep) * dir;
+      /* 4.8.18 Gerard Sheets: Col H Prep day A–Z (label text e.g. "1 Monday"),
+         then Col A Item A–Z, then Col I Source tab A–Z.
+         Matches Google Sheets sort — NOT calendar actualPrep (which puts
+         previous-week "5 Friday" before "1 Monday"). */
+      var pa = String(a.prepDay || '').toLowerCase();
+      var pb = String(b.prepDay || '').toLowerCase();
+      if (pa < pb) return -1 * dir;
+      if (pa > pb) return 1 * dir;
       if (a.itemNorm < b.itemNorm) return -1 * dir;
       if (a.itemNorm > b.itemNorm) return 1 * dir;
       var sa = String(a.sourceTab || '').toLowerCase();
       var sb = String(b.sourceTab || '').toLowerCase();
       if (sa < sb) return -1 * dir;
       if (sa > sb) return 1 * dir;
-      if (col !== 'actualPrep' && col !== 'itemNorm' && col !== 'sourceTab') {
+      if (col !== 'actualPrep' && col !== 'prepDay' && col !== 'itemNorm' && col !== 'sourceTab' && col !== 'item') {
         var va = a[col], vb = b[col];
         if (va < vb) return -1 * dir;
         if (va > vb) return 1 * dir;
@@ -217,11 +222,14 @@
     return { prepDay: info.prepDay, info: info };
   }
 
-  /* Default organised sort: prep date → item A–Z → source tab */
+  /* Default organised sort: Prep day label A–Z → Item A–Z → Source A–Z (Sheets H→A→I) */
   function smartChefSort(a, b) {
-    /* 4.8.17 Gerard 8:46pm: Prep day (date order) → Item A–Z.
-       Source tab only as tiebreak after item (replaces 4.8.15 function-order secondary). */
-    if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
+    /* 4.8.18 Gerard Sheets dialog: Column H A–Z, then A A–Z, then I A–Z.
+       Use prep day LABEL ("1 Monday"), not calendar actualPrep. */
+    var pa = String(a.prepDay || '').toLowerCase();
+    var pb = String(b.prepDay || '').toLowerCase();
+    if (pa < pb) return -1;
+    if (pa > pb) return 1;
     if (a.itemNorm < b.itemNorm) return -1;
     if (a.itemNorm > b.itemNorm) return 1;
     var sa = String(a.sourceTab || '').toLowerCase();
@@ -379,7 +387,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.17',
+    VERSION: '4.8.18',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

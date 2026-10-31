@@ -1,4 +1,4 @@
-/* Prepline 4.8.17 — trial: Wed↔Sat/Mon smart chef + move-next-day + Excel-style column menus.
+/* Prepline 4.8.18 — trial: Wed↔Sat/Mon smart chef + move-next-day + Excel-style column menus.
  * Autoprod. TRIAL ONLY — do NOT port to Paula.
  *
  * 1) batching.js: Sat maxFwd=4 (Mon+Tue+Wed under saturdayCap); earliest-day ties (Thu+Fri→Monday);
@@ -78,6 +78,10 @@
           if (ca > cb) return 1 * dir;
           if (a.itemNorm < b.itemNorm) return -1;
           if (a.itemNorm > b.itemNorm) return 1;
+          var sa = String(a.sourceTab || '').toLowerCase();
+          var sb = String(b.sourceTab || '').toLowerCase();
+          if (sa < sb) return -1;
+          if (sa > sb) return 1;
           return 0;
         });
         return list;
@@ -104,9 +108,17 @@
         });
       }
       list.sort(function (a, b) {
-        if (a.actualPrep !== b.actualPrep) return (a.actualPrep - b.actualPrep) * dir;
-        if (a.itemNorm < b.itemNorm) return -1;
-        if (a.itemNorm > b.itemNorm) return 1;
+        /* 4.8.18 Gerard Sheets H→A→I */
+        var pa = String(a.prepDay || '').toLowerCase();
+        var pb = String(b.prepDay || '').toLowerCase();
+        if (pa < pb) return -1 * dir;
+        if (pa > pb) return 1 * dir;
+        if (a.itemNorm < b.itemNorm) return -1 * dir;
+        if (a.itemNorm > b.itemNorm) return 1 * dir;
+        var sa = String(a.sourceTab || '').toLowerCase();
+        var sb = String(b.sourceTab || '').toLowerCase();
+        if (sa < sb) return -1 * dir;
+        if (sa > sb) return 1 * dir;
         return 0;
       });
       return list;
@@ -550,8 +562,8 @@
     ensureSheetExtras();
     installMoveNextDay();
     installExcelColMenus();
-    if (root.Prepline488) root.Prepline488.VERSION = '4.8.17';
-    if (root.Prepline477) root.Prepline477.VERSION = '4.8.17';
+    if (root.Prepline488) root.Prepline488.VERSION = '4.8.18';
+    if (root.Prepline477) root.Prepline477.VERSION = '4.8.18';
   }
 
   if (typeof document !== 'undefined') {
@@ -565,7 +577,7 @@
   }
 
   root.Prepline489 = {
-    VERSION: '4.8.17',
+    VERSION: '4.8.18',
     installMoveNextDay: installMoveNextDay,
     installExcelColMenus: installExcelColMenus,
     moveNextDayBtnHtml: moveNextDayBtnHtml,
