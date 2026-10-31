@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.20-trial">
+<meta name="prepline-version" content="4.8.21-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -101,6 +101,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-488.js"></script>
 <script src="upgrades-489.js"></script>
 <script src="upgrades-4820.js"></script>
+<script src="upgrades-4821.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -940,7 +941,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.20</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.21</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -2551,7 +2552,7 @@ function classifyPrepStage(taskText, baseCategory, contextStage){
 // instead (see calendarDayForPrepNum). Purely a per-session setting, same as everything
 // else here — reopen a day any time by unticking it again.
 function blockedDaysPanelHtml(){
-  return `<div class="panel no-print" style="padding:12px 16px; margin-bottom:16px;">
+  return `<div class="panel no-print" id="blockedDaysPanel" style="padding:12px 16px; margin-bottom:16px;">
     <div style="font-weight:700; font-size:12.5px; margin-bottom:8px;">Kitchen closed on (public holiday etc.) — prep auto-shifts off these days</div>
     <div style="font-size:11.5px; color:#5C5A52; margin-bottom:8px;">Weekend avoidance (all categories) is on by default in Venue rules — Sat/Sun starts move forward to Monday, or back to Friday if Monday is on/after the function day. Sunday never; Saturday starts off unless allowed. Day-omit below still pushes earlier.</div>
     <div class="row" style="gap:14px; flex-wrap:wrap;">
@@ -8607,8 +8608,8 @@ function renderWeekView47(){
   if (!window.PreplineUpgrades47) return '<div class="panel">Week view unavailable</div>';
   const rows = viewRows();
   const groups = window.PreplineBatch ? PreplineBatch.buildBatches(rows, batchDeps()) : [];
-  return PreplineUpgrades47.progressSummaryHtml(groups) +
-    PreplineUpgrades47.renderWeekView(rows, batchDeps(), { escapeHtml, qN, qU, cleanDishName });
+  /* 4.8.21: progress feature removed from UI */
+  return PreplineUpgrades47.renderWeekView(rows, batchDeps(), { escapeHtml, qN, qU, cleanDishName });
 }
 function renderOrder47(){
   if (!window.PreplineUpgrades47) return '';

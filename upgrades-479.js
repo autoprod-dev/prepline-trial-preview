@@ -281,7 +281,7 @@
   root.exportAsIsXlsxWithPhotos = exportAsIsXlsxWithPhotos;
   root.buildAsIsXlsxWithPhotos = buildAsIsXlsxWithPhotos;
   root.Prepline479 = {
-    VERSION: '4.8.20',
+    VERSION: '4.8.21',
     exportAsIsXlsxWithPhotos: exportAsIsXlsxWithPhotos,
     dishPhotoFor: dishPhotoFor
   };

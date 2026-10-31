@@ -1,4 +1,4 @@
-/* Prepline 4.8.20 — trial: Wed↔Sat/Mon smart chef + move-next-day + Excel-style column menus.
+/* Prepline 4.8.21 — trial: Wed↔Sat/Mon smart chef + move-next-day + Excel-style column menus.
  * Autoprod. TRIAL ONLY — do NOT port to Paula.
  *
  * 1) batching.js: Sat maxFwd=4 (Mon+Tue+Wed under saturdayCap); earliest-day ties (Thu+Fri→Monday);
@@ -562,8 +562,8 @@
     ensureSheetExtras();
     installMoveNextDay();
     installExcelColMenus();
-    if (root.Prepline488) root.Prepline488.VERSION = '4.8.20';
-    if (root.Prepline477) root.Prepline477.VERSION = '4.8.20';
+    if (root.Prepline488) root.Prepline488.VERSION = '4.8.21';
+    if (root.Prepline477) root.Prepline477.VERSION = '4.8.21';
   }
 
   if (typeof document !== 'undefined') {
@@ -577,7 +577,7 @@
   }
 
   root.Prepline489 = {
-    VERSION: '4.8.20',
+    VERSION: '4.8.21',
     installMoveNextDay: installMoveNextDay,
     installExcelColMenus: installExcelColMenus,
     moveNextDayBtnHtml: moveNextDayBtnHtml,
