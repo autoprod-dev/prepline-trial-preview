@@ -1,4 +1,4 @@
-/* Prepline 4.8.25 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.26 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -118,9 +118,10 @@
       if (!r) return;
       if (!r.prepCat) {
         var t = String(r.task || r.item || '').toLowerCase();
-        if (/\bchicken\b|\bspatch\b|\bpoultry\b|\bduck\b|\bturkey\b|\bquail\b/.test(t)) {
+        if (/\bchicken\b|\bspatch\b|\bpoultry\b|\bduck\b|\bturkey\b|\bquail\b/.test(t)
+            && !/\b(jus|stock|oil|dressing|butter|cream|sauce|gel|puree|glace)\b/.test(t.split('/')[0] || t)) {
           r.prepCat = 'poultry';
-          if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
+          r.leadDays = 3; /* 4.8.26 overrides 4-day protein */
         } else if (/\bprawn\b|\bshrimp\b/.test(t)) {
           r.prepCat = 'prawn';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 1;
@@ -130,7 +131,11 @@
         } else if (/\bbeef\b|\blamb\b|\bpork\b|\bveal\b|\bwagyu\b|\bbrisket\b/.test(t)) {
           r.prepCat = 'redmeat';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
-        } else if (/\bbutter\b|\bcheese\b|\bcream\b|\bparmesan\b|\bricotta\b|\bfeta\b/.test(t)) {
+        } else if (/\b(parmesan|ricotta|feta|mozzarella|burrata|cheese|haloumi|halloumi|mascarpone|cheddar|brie)\b/.test(t)
+            && !/\b(butter|cream)\b/.test(t.split('/')[0] || t)) {
+          r.prepCat = 'cheese';
+          r.leadDays = 3; /* 4.8.26 */
+        } else if (/\bbutter\b|\bcream\b/.test(t.split('/')[0] || t)) {
           r.prepCat = 'dairy';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
         } else if (/\bdressing\b|\bvinaigrette\b|\baioli\b|\bmayo\b/.test(t)) {
@@ -142,8 +147,47 @@
         } else if (/\boil\b/.test(t.split('/')[0] || t)) {
           r.prepCat = 'oil';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
+        } else if (/\bcrouton/.test(t) || /\b(soil|powder|crumb|crumbs|crumble|dust|dukkah|dukka|panko|furikake)\b/.test(t.split('/')[0] || t)) {
+          r.prepCat = 'dry';
+          r.leadDays = 4;
         }
       }
+      /* 4.8.26: puree=2 (overrides gels); cheese=3; poultry=3 */
+      (function () {
+        var task = String(r.task || r.item || '');
+        var head = task.toLowerCase().split('/')[0] || '';
+        if (/\bpurees?\b|\bpurées?\b|\bpureed\b/.test(head) || r.prepCat === 'puree') {
+          r.prepCat = 'puree';
+          r.leadDays = 2;
+          return;
+        }
+        if (/\bfluid\s*gel\b|\bgels?\b/.test(head) && !/\bpurees?\b/.test(head)) {
+          r.prepCat = 'gels';
+          if (!Number.isFinite(r.leadDays) || r.leadDays > 3) r.leadDays = 3;
+        }
+        if (/\b(butter|beurre)\b/.test(head)
+            && !/butter\s+lettuce|butter\s+poached|no\s+butter|without\s+butter/i.test(head)) {
+          r.prepCat = 'dairy';
+          r.leadDays = 4; /* butters stay 4 */
+          return;
+        }
+        if (/\b(cheese|parmesan|parmigiano|pecorino|mozzarella|burrata|ricotta|feta|haloumi|halloumi|mascarpone|cheddar|brie|camembert|goat curd|labneh)\b/.test(head)
+            && !/\b(butter|cream|creme|crème)\b/.test(head)) {
+          r.prepCat = 'cheese';
+          r.leadDays = 3;
+        }
+        if (r.prepCat === 'poultry' || (/\b(chicken|duck|turkey|quail|poultry|spatchcock|poussin)\b/.test(head)
+            && !/\b(jus|stock|oil|dressing|butter)\b/.test(head))) {
+          /* name poultry product — not chicken jus */
+          if (/\b(chicken|duck|turkey|quail|poultry|spatchcock|poussin)\b/.test(head)
+              && !/\b(jus|stock|oil|dressing|butter|cream|sauce|gel|puree)\b/.test(head)) {
+            r.prepCat = 'poultry';
+            r.leadDays = 3;
+          } else if (r.prepCat === 'poultry') {
+            r.leadDays = 3;
+          }
+        }
+      })();
       /* 4.8.25: Gerard soft/hard first; else vegraw/vegcook. Also garnish→hard list hits. */
       (function () {
         var task = r.task || r.item || '';
@@ -395,7 +439,7 @@
   var RULE_CLARIFICATIONS = [
     'Wed vs Mon+Tue (4.8.9 Gerard): Saturday maxFwd=min(winMax,4) so Sat covers Mon+Tue+Wed when under saturdayCap; if Sat heavy / cap full, Wed pushes to Monday. In-app → next day moves a prep group on the fly.',
     'Thu+Fri prep day (4.8.9 Gerard): earliest valid day = Monday (tie-break no longer fresher/later).',
-    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=2; prawn=1 not batchable; vegsoft=2 / veghard=4 (4.8.25 Gerard); vegraw=4 / vegcook|veg=3 fallback; garnish=2; gels/starch=3; poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1 not batchable. garnish/micro/prawn default batchable=false.',
+    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=2; prawn=1 not batchable; vegsoft=2 / veghard=4 (4.8.25); puree=2 no long-life (4.8.26); poultry/cheese=3 (4.8.26); vegraw=4 / vegcook|veg=3; garnish=2; gels/starch=3; redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1 not batchable. Long-life: dressings/croutons/powders/crumbs/oils/soils/gels. garnish/micro/prawn batchable=false.',
     'Saturday: only for multi-use 4-day proteins (≥2 uses) when allowSaturdayStarts is off; saturdayCap default 3 then overflow to Friday.',
     'Sunday: never used as a prep start (always shifted).',
     'Solo (single use): uses prepStartFromLead (base lead + weekend avoidance), not the multi-use Saturday pack.',
@@ -403,7 +447,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.25',
+    VERSION: '4.8.26',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

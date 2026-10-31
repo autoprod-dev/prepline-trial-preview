@@ -26,15 +26,15 @@
 
   var DEFAULT_BATCHABLE = {
     poultry: true, redmeat: true, seafood: true, prawn: false, veg: true, vegsoft: true, veghard: true, vegraw: true, vegcook: true, dry: true, oil: true,
-    gels: true, dressing: true, dairy: true, starch: true, crabcroq: true,
+    gels: true, puree: true, dressing: true, dairy: true, cheese: true, starch: true, crabcroq: true,
     garnish: false, micro: false
   };
 
   // 4-day proteins share window 4; seafood/fish window 2 (4.8.13); prawns window 1 non-batchable (4.8.24).
   var DEFAULT_BATCH_WINDOW = {
     /* proteins 4; seafood 2; prawn 1; vegsoft 2 / veghard 4 (4.8.25); vegraw 4 / vegcook|veg 3; garnish 2 */
-    poultry: 4, redmeat: 4, seafood: 2, prawn: 1, veg: 3, vegsoft: 2, veghard: 4, vegraw: 4, vegcook: 3, dry: 4, oil: 4,
-    gels: 3, dressing: 4, dairy: 4, starch: 3, crabcroq: 4,
+    poultry: 3, redmeat: 4, seafood: 2, prawn: 1, veg: 3, vegsoft: 2, veghard: 4, vegraw: 4, vegcook: 3, dry: 4, oil: 4,
+    gels: 3, puree: 2, dressing: 4, dairy: 4, cheese: 3, starch: 3, crabcroq: 4,
     garnish: 2, micro: 1
   };
 
@@ -453,18 +453,24 @@
   }
 
   /**
-   * 4.8.17 Paula: long-life mise (dressings, croutons, dry powders/crumbs, oils) keeps ~2 weeks.
-   * Batch every row of the same item this week onto one prep day ≤4 before earliest function.
+   * 4.8.17 / 4.8.26 Paula: long-life mise keeps ~2 weeks — dressings, any croutons, powders,
+   * crumbs, oils, soils, gels (e.g. Yuzu Gel). Pack all week rows onto one prep day ≤4 before
+   * earliest function. Purees are excluded (lead 2 only, no early week pack).
    */
   function isLongLifeRow(row) {
     var cat = String((row && row.prepCat) || '').toLowerCase();
-    if (cat === 'dressing' || cat === 'oil' || cat === 'dry') return true;
     var t = String((row && (row.task || row.item)) || '').toLowerCase();
     var name = t.split('/')[0] || t;
+    /* Puree always wins: never long-life (4.8.26) */
+    if (cat === 'puree' || /\bpurees?\b|\bpurées?\b|\bpureed\b/.test(name)) return false;
+    if (cat === 'dressing' || cat === 'oil' || cat === 'dry') return true;
     if (/\bdressing\b|\bvinaigrette\b|\baioli\b|\bmayo\b/.test(name)) return true;
-    if (/\bcrouton/.test(t)) return true;
-    if (/\b(powder|crumb|crumbs|crumble|dust|dukkah|dukka|panko|furikake)\b/.test(name)) return true;
+    if (/\bcrouton/.test(t)) return true; /* any croutons, not only curried */
+    if (/\b(powder|crumb|crumbs|crumble|dust|dukkah|dukka|panko|furikake|soils?)\b/.test(name)) return true;
     if (/\boil\b/.test(name)) return true;
+    /* Gels (name or cat) — not purees (handled above) */
+    if (cat === 'gels' && /\bgels?\b|\bfluid\s*gel\b/.test(name)) return true;
+    if (/\bfluid\s*gel\b|\bgels?\b/.test(name) && !/\bpurees?\b|\bpurées?\b/.test(name)) return true;
     return false;
   }
 
@@ -537,7 +543,8 @@
   }
 
   function isFourDayProtein(cat) {
-    return cat === 'poultry' || cat === 'redmeat' || cat === 'crabcroq';
+    /* 4.8.26: poultry is 3-day — not in 4-day protein Saturday multi-use path */
+    return cat === 'redmeat' || cat === 'crabcroq';
   }
 
   /** Saturday prep lasts through Wednesday (fwd <= 4) when winMax allows; weekdays use full winMax. */

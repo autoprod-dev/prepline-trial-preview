@@ -163,7 +163,7 @@
 
   var SHELF_DAYS = {
     poultry: 4, redmeat: 4, crabcroq: 4, seafood: 2, fish: 2, prawn: 1, vegsoft: 2, veghard: 4,
-    veg: 4, dry: 4, oil: 4, gels: 3, dressing: 4, dairy: 4, starch: 3,
+    veg: 4, dry: 4, oil: 4, gels: 3, puree: 2, dressing: 4, dairy: 4, cheese: 3, poultry: 3, starch: 3,
     garnish: 2, micro: 1
   };
 

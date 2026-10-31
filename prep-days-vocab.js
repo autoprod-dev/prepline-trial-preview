@@ -1,4 +1,4 @@
-/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.13 / 4.8.24 / 4.8.25).
+/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.13 / 4.8.24 / 4.8.25 / 4.8.26).
  * EDIT THIS FILE to change the rules. Each category has:
  *   lead   - how many days BEFORE the event/function day the job starts (0 = on the day)
  *   weekendShift - if true, Sat/Sun starts use weekend avoidance (forward Mon / back Fri).
@@ -7,9 +7,8 @@
  *   batchWindow - max days from batch prep day to latest member use (protein = 4, fish/seafood = 2, prawn = 1)
  *   legend / words - matching (first match wins; specific before general)
  *
- * Protein 4-day stages (Gerard 4.8.12) — poultry/redmeat prep START lead=4:
- *   day 4 before = collect & trim; day 3 = sear/cool down; day 2 = re-tray or roast;
- *   day 1 (event) = box off.
+ * Protein stages (Gerard): redmeat prep START lead=4 (day4 collect/trim … event box off).
+ *   Poultry lead=3 (4.8.26 — overrides general 4-day protein).
  * Seafood / fish (Gerard 4.8.13): lead=2, batchWindow=2 —
  *   day 2 before = collect & trim; day 1 before = process / count / tray up.
  * Prawns (Gerard 4.8.24): lead=1, batchWindow=1, not cross-batched —
@@ -22,6 +21,10 @@
  *   edible/garlic flowers, iceplant, samphire, karkalla, seablight, picked warrigal.
  *   Specificity: sauteed warrigal=2 vs picked warrigal=4; shaved fennel=2 vs roasted/sous vide=4.
  *   Micro herbs: lead=1, not early-batched. Unlisted veg still use vegraw≤4 / vegcook≤3 fallback.
+ * 4.8.26 Paula long-life: dressings, any croutons, powders, crumbs, oils, soils, gels (e.g. Yuzu Gel)
+ *   — made once ≤4 days before first event of the week; covers whole week.
+ *   ANY puree = lead 2 only (no earlier / long-life batching; overrides gels window), e.g. Pea + Tarragon Puree.
+ *   Poultry lead=3 (overrides general 4-day protein). Cheese lead=3. Dressings & butters stay 4.
  */
 
 window.PREP_DAYS_VOCAB = [
@@ -34,9 +37,13 @@ window.PREP_DAYS_VOCAB = [
   {key:'oil',     label:'Oils',                    lead:4, batchWindow:4, weekendShift:true, family:'garnish',
    legend:['oil','oils'],
    words:['oil','oils','chilli oil','herb oil','green oil']},
-  {key:'gels',    label:'Gels and purees',         lead:3, batchWindow:3, weekendShift:true, family:'sauce',
-   legend:['gel','gels','puree','purees','sauce','sauces','sauce puree gels','sauces purees gels'],
-   words:['gel*','puree*','purée*','pureed','coulis','fluid gel','jelly','butter glaze','glaze','romesco','reduction','jus','gravy','salsa','relish','chutney','ragu','ragout','ponzu','cashew cream','cream flora','flora cream']},
+  /* 4.8.26: puree lead=2 no long-life; gels stay 3 but long-life packs whole week ≤4 before first event */
+  {key:'puree',   label:'Purees (2 days)',           lead:2, batchWindow:2, weekendShift:true, family:'sauce',
+   legend:['puree','purees'],
+   words:['puree*','purée*','pureed']},
+  {key:'gels',    label:'Gels and sauces',         lead:3, batchWindow:3, weekendShift:true, family:'sauce',
+   legend:['gel','gels','sauce','sauces','sauce puree gels','sauces purees gels'],
+   words:['gel*','coulis','fluid gel','jelly','butter glaze','glaze','romesco','reduction','jus','gravy','salsa','relish','chutney','ragu','ragout','ponzu','cashew cream','cream flora','flora cream']},
   /* 4.8.24: prawns before seafood so keyword match wins (lead 1, no early batching). */
   {key:'prawn',   label:'Prawns (order day-before)', lead:1, batchWindow:1, weekendShift:true, family:'protein',
    legend:['prawn','prawns','shrimp'],
@@ -68,12 +75,16 @@ window.PREP_DAYS_VOCAB = [
    legend:[], words:[]},
   {key:'vegcook', label:'Vegetables (cooked)',     lead:3, batchWindow:3, weekendShift:true, family:'veg',
    legend:[], words:[]},
-  {key:'poultry', label:'Poultry',                 lead:4, batchWindow:4, weekendShift:true, family:'protein',
+  {key:'poultry', label:'Poultry (3 days)',          lead:3, batchWindow:3, weekendShift:true, family:'protein',
    legend:['poultry','chicken','duck','birds','game birds'],
    words:['poultry','chicken','duck','turkey','quail','spatchcock','poussin','guinea fowl','pheasant','goose','pigeon','squab','confit leg','thigh*','drumstick*','wing*']},
-  {key:'dairy',   label:'Cheese, butters and creams', lead:4, batchWindow:4, weekendShift:true, family:'dairy',
-   legend:['cheese','cheeses','dairy','butter','butters','cream','creams','butters creams','cheese dairy'],
-   words:['cheese*','parmesan','parmigiano','pecorino','grana padano','mozzarella','burrata','ricotta','feta','haloumi','halloumi','goat curd','labneh','mascarpone','stracciatella','gruyere','cheddar','brie','camembert','blue cheese','butter*','cream','creams','creme fraiche','crème fraîche','sour cream','chantilly','custard','yoghurt','yogurt']},
+  /* 4.8.26: cheese lead=3; butters/creams stay on dairy lead=4 */
+  {key:'cheese',  label:'Cheese (3 days)',           lead:3, batchWindow:3, weekendShift:true, family:'dairy',
+   legend:['cheese','cheeses','cheese dairy'],
+   words:['cheese*','parmesan','parmigiano','pecorino','grana padano','mozzarella','burrata','ricotta','feta','haloumi','halloumi','goat curd','labneh','mascarpone','stracciatella','gruyere','cheddar','brie','camembert','blue cheese']},
+  {key:'dairy',   label:'Butters and creams',        lead:4, batchWindow:4, weekendShift:true, family:'dairy',
+   legend:['dairy','butter','butters','cream','creams','butters creams'],
+   words:['butter*','cream','creams','creme fraiche','crème fraîche','sour cream','chantilly','custard','yoghurt','yogurt']},
   {key:'dressing', label:'Dressings',              lead:4, batchWindow:4, weekendShift:true, family:'dressing',
    legend:['dressing','dressings','vinaigrette','vinaigrettes'],
    words:['dressing*','vinaigrette*','mayo','mayonnaise','aioli','ranch']},

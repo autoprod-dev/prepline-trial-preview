@@ -88,7 +88,7 @@
       weekendShift: true, // 4.6.2: weekend avoidance for ALL categories (profile toggle)
       allowSaturdayStarts: false, // default: no Saturday starts
       saturdayCap: 3, // optional soft cap when Saturday starts allowed
-      prepDaysVersion: '4.8.25',
+      prepDaysVersion: '4.8.26',
       batchable: batchable, // cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
@@ -187,12 +187,35 @@
             o.version = 6;
             saveStore(o);
           }
+          // 4.8.26: puree=2, poultry/cheese=3, long-life gels/soils; refresh Default
+          if (!o.version || o.version < 7) {
+            var fresh7 = defaultFromVocab();
+            o.profiles.forEach(function (pr) {
+              if (!pr.batchable || typeof pr.batchable !== 'object') pr.batchable = Object.assign({}, fresh7.batchable);
+              else {
+                Object.keys(fresh7.batchable || {}).forEach(function (k) {
+                  if (pr.batchable[k] === undefined) pr.batchable[k] = fresh7.batchable[k];
+                });
+              }
+              pr.batchable.micro = false;
+              pr.batchable.prawn = false;
+              if (pr.id === 'default' && pr.builtIn) {
+                pr.rules = fresh7.rules;
+                pr.batchable = Object.assign({}, fresh7.batchable);
+                pr.batchable.micro = false;
+                pr.batchable.prawn = false;
+                pr.prepDaysVersion = '4.8.26';
+              }
+            });
+            o.version = 7;
+            saveStore(o);
+          }
           return o;
         }
       }
     } catch (e) {}
     var def = defaultFromVocab();
-    var store = { profiles: [def], version: 6 };
+    var store = { profiles: [def], version: 7 };
     saveStore(store);
     return store;
   }

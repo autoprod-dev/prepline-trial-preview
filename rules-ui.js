@@ -103,7 +103,7 @@
       '</div>' +
       '<div class="rp-batch" id="rpBatch" style="margin:12px 0;padding:12px;border:1px solid #D9D3C3;border-radius:8px;background:#fff">' +
         '<div style="font-weight:600;margin-bottom:6px">Cross-dish batching (per section)</div>' +
-        '<p style="margin:0 0 8px;font-size:12.5px;color:#5C5A52">When “Batch across dishes” is on, matching ingredients merge across dishes/function days within each category’s batch window (4-day proteins & veg/dairy/dry/oil/dressing/crab croq; 3 gels/starch; 2 garnish; 1 fish/micro). Sunday never; Saturday only if allowed. Untick a category to keep it as separate lines.</p>' +
+        '<p style="margin:0 0 8px;font-size:12.5px;color:#5C5A52">When “Batch across dishes” is on, matching ingredients merge across dishes/function days within each category’s batch window (4-day redmeat/dairy-butter/dry/oil/dressing/crab croq; 3 poultry/cheese/gels/starch; 2 puree/garnish; 1 fish/micro; long-life dressings/croutons/powders/crumbs/oils/soils/gels). Sunday never; Saturday only if allowed. Untick a category to keep it as separate lines.</p>' +
         '<div id="rpBatchChecks" style="display:flex;flex-wrap:wrap;gap:8px 14px"></div>' +
       '</div>' +
       '<div id="rpEdit"></div>' +
@@ -124,7 +124,7 @@
       var vocab = (window.PREP_DAYS_VOCAB || []);
       box.innerHTML = vocab.map(function (c) {
         /* 4.8.24: prawn omitted from default-on list → stays false (no Mon/Sat early batch). */
-        var on = p.batchable[c.key] !== false && (p.batchable[c.key] === true || ['poultry','redmeat','seafood','veg','vegsoft','veghard','vegraw','vegcook','dry','oil','gels','dressing','dairy','starch','crabcroq'].indexOf(c.key) >= 0);
+        var on = p.batchable[c.key] !== false && (p.batchable[c.key] === true || ['poultry','redmeat','seafood','veg','vegsoft','veghard','vegraw','vegcook','dry','oil','gels','puree','dressing','dairy','cheese','starch','crabcroq'].indexOf(c.key) >= 0);
         if (p.batchable[c.key] === undefined) p.batchable[c.key] = on;
         if (c.key === 'prawn') { p.batchable.prawn = false; on = false; }
         return '<label style="font-size:12.5px;display:inline-flex;align-items:center;gap:5px;cursor:pointer">' +

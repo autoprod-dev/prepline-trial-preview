@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.25-trial">
+<meta name="prepline-version" content="4.8.26-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -106,6 +106,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-4823.js"></script>
 <script src="upgrades-4824.js"></script>
 <script src="upgrades-4825.js"></script>
+<script src="upgrades-4826.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -945,7 +946,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.25</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.26</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -956,7 +957,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
     clear browsing data.
     Sorting is keyword-based and won't be perfect — use the section dropdown on any row to move it.
     Prep stage for 4-day proteins: day 4 collect&amp;trim, day 3 sear/cool, day 2 re-tray/roast, event day box off.
-    Fish &amp; seafood: 2 days (collect/trim then process/tray). Prawns: 1 day before (ordered day-before for freshness; not early-batched). Other proteins 4 days. Crab croquettes: 4 days. Soft veg: 2 days (zucchini, radish, sauteed warrigal, shaved fennel, celeriac remoulade, apple). Hard veg: 4 days (carrots, onions, beetroot, pumpkin, potato/sweet potato, leeks, turnips, roasted/sous-vide fennel, gem/witlof, picked leaves/flowers, iceplant, samphire, karkalla, seablight, picked warrigal, pickled veg). Micro herbs: 1 day (not early-batched). Other veg: raw ≤4 / cooked ≤3 fallback;
+    Fish &amp; seafood: 2 days (collect/trim then process/tray). Prawns: 1 day before (ordered day-before for freshness; not early-batched). Other proteins 4 days (poultry 3). Crab croquettes: 4 days. Soft veg: 2 days (zucchini, radish, sauteed warrigal, shaved fennel, celeriac remoulade, apple). Hard veg: 4 days (carrots, onions, beetroot, pumpkin, potato/sweet potato, leeks, turnips, roasted/sous-vide fennel, gem/witlof, picked leaves/flowers, iceplant, samphire, karkalla, seablight, picked warrigal, pickled veg). Micro herbs: 1 day (not early-batched). Other veg: raw ≤4 / cooked ≤3 fallback. Poultry: 3 days (overrides general 4-day protein). Cheese: 3 days. Dressings &amp; butters: 4 days. Purees: 2 days before the event only (no earlier batching). Long-life mise (dressings, any croutons, powders, crumbs, oils, soils, gels e.g. Yuzu Gel): made once ≤4 days before first event of the week, covers the whole week;
     then mapped onto real weekdays — in Recipe database mode, working backward from the event date you enter
     each week (a Saturday event runs Wed/Thu/Fri/Sat prep); in One-time sort mode, from a weekday named in the
     dish's tab (e.g. "Mains Beef Fillet Saturday") or set manually per dish. The "By prep day" view groups every
@@ -2152,14 +2153,17 @@ function prepCatByWords(text, family, dishCtx){
     }
   }
   // Product-type in the NAME wins over garnish herbs / veg produce words
-  // e.g. "Pea Tarragon Puree" → gels; "Porcini Mushroom Soil" → dry; "Chicken Jus" → gels
+  // e.g. "Pea Tarragon Puree" → puree (2d); "Porcini Mushroom Soil" → dry; "Yuzu Gel" → gels long-life; "Chicken Jus" → gels
+  // 4.8.26: puree (2d) before gels; cheese (3d) before dairy butters; soils/croutons→dry long-life
   const productRules = [
-    { re: /\b(puree|purees|purée|purées|coulis|fluid gel|gel|gels)\b/, key: 'gels' },
+    { re: /\b(puree|purees|purée|purées|pureed)\b/, key: 'puree' },
+    { re: /\b(coulis|fluid gel|gel|gels)\b/, key: 'gels' },
     { re: /\b(jus|gravy|reduction|ragu|ragout|romesco|ponzu|salsa|relish|chutney)\b/, key: 'gels' },
     { re: /\b(dressing|vinaigrette|mayo|mayonnaise|aioli)\b/, key: 'dressing' },
     { re: /\b(oil|oils)\b/, key: 'oil' },
+    { re: /\b(parmesan|parmigiano|pecorino|mozzarella|burrata|ricotta|feta|haloumi|halloumi|mascarpone|cheddar|brie|camembert|blue cheese|goat curd|labneh|stracciatella|gruyere|grana padano|cheese)\b/, key: 'cheese' },
     { re: /\b(butter|beurre)\b/, key: 'dairy', neg: /\b(no|without|df|dairy[- ]free)\b.{0,12}\bbutter\b|\bbutter\b.{0,8}\b(free|omit)/ },
-    { re: /\b(soil|crumb|crumbs|crumble|dust|powder|tuile|dukkah|granola)\b/, key: 'dry' },
+    { re: /\b(soil|crumb|crumbs|crumble|dust|powder|tuile|dukkah|granola|crouton)\b/, key: 'dry' },
     { re: /\b(microherb|micro herbs|micro greens|micros|cress|tendril)\b/, key: 'micro' },
   ];
   for (const rule of productRules){
@@ -2270,6 +2274,42 @@ function prepInfoFor(text, legendPrep, section, dishCtx){
   let info = c
     ? {prepCat: c.key, leadDays: c.lead, prepSrc: src, weekendShift: !!c.weekendShift}
     : {prepCat: '', leadDays: null, prepSrc: '', weekendShift: false};
+  /* 4.8.26: ANY puree → lead 2 only (overrides gels/sauce legend & long-life). */
+  try{
+    const head0 = String(text || '').toLowerCase().split('/')[0] || '';
+    if (/\bpurees?\b|\bpurées?\b|\bpureed\b/.test(head0) || info.prepCat === 'puree'){
+      const pc = prepCatByKey('puree') || { key: 'puree', lead: 2, weekendShift: true };
+      info.prepCat = 'puree';
+      info.leadDays = 2;
+      info.weekendShift = !!pc.weekendShift;
+      info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'puree-2';
+    }
+  }catch(e){}
+  /* 4.8.26: cheese → 3 days; butters/creams stay dairy 4. */
+  try{
+    const head1 = String(text || '').toLowerCase().split('/')[0] || '';
+    if (/\b(cheese|parmesan|parmigiano|pecorino|mozzarella|burrata|ricotta|feta|haloumi|halloumi|mascarpone|cheddar|brie|camembert|goat curd|labneh|stracciatella|gruyere|grana padano)\b/.test(head1)
+        && !/\b(butter|cream|creme|crème)\b/.test(head1)){
+      const cc = prepCatByKey('cheese') || { key: 'cheese', lead: 3, weekendShift: true };
+      info.prepCat = 'cheese';
+      info.leadDays = 3;
+      info.weekendShift = !!cc.weekendShift;
+      info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'cheese-3';
+    }
+  }catch(e){}
+  /* 4.8.26: butters stay dairy lead 4 (not gels/cheese). */
+  try{
+    const head2 = String(text || '').toLowerCase().split('/')[0] || '';
+    if (/\b(butter|beurre|maître|maitre)\b/.test(head2) && !/\b(no|without)\s+butter\b|\bbutter\s+lettuce\b|\bbutter\s+poached\b|df\b.{0,20}\bbutter|\bbutter\b.{0,12}\b(free|omit)/i.test(String(text||''))){
+      if (/\bbutter\b|\bbeurre\b/.test(head2)){
+        const dc = prepCatByKey('dairy') || { key: 'dairy', lead: 4, weekendShift: true };
+        info.prepCat = 'dairy';
+        info.leadDays = 4;
+        info.weekendShift = !!dc.weekendShift;
+        info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'butter-4';
+      }
+    }
+  }catch(e){}
   /* 4.8.25: Gerard soft(2)/hard(4) named lists first; else vegraw≤4 / vegcook≤3 fallback.
    * Also reclassify garnish hits that match hard list (karkalla, samphire, flowers, …). */
   try{
@@ -2456,7 +2496,7 @@ function eventDaySelect(encodedDish, current){
 // Day 2 keywords → stageNum 2 → event−2 (= day 3 before): sear / cool down
 // Day 3 keywords → stageNum 3 → event−1 (= day 2 before): re-tray or roast
 // Day 4 keywords → stageNum 4 → event day: box off
-// Seafood/fish lead=2. Prawns lead=1. Veg 4.8.25: soft=2 / hard=4 named lists; else vegraw/vegcook. Micro=1.
+// Seafood/fish lead=2. Prawns lead=1. Veg 4.8.25 soft/hard. Micro=1. 4.8.26: puree=2; poultry/cheese=3; long-life +gels/soils.
 const DAY1_KW = ['collect','trim','wash','count','top up order','topup order','top-up order','order top up','order',
   'peel','devein','de-vein','unpack','receive delivery','receiving','stocktake','par level','tally','defrost',
   'thaw','pat dry','squeeze','drain'];
