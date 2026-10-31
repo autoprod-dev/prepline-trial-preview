@@ -1337,7 +1337,14 @@
       return COL_KEYS.every(function (k) {
         var f = filters[k];
         if (!f) return true;
-        return String(r.cells[k] || '').toLowerCase().indexOf(String(f).toLowerCase()) >= 0;
+        var cell = String(r.cells[k] || '');
+        if (typeof f === 'object' && !Array.isArray(f)) {
+          if (f.text && cell.toLowerCase().indexOf(String(f.text).toLowerCase()) < 0) return false;
+          if (Array.isArray(f.values) && f.values.length && f.values.indexOf(cell) < 0) return false;
+          return true;
+        }
+        if (Array.isArray(f)) return f.indexOf(cell) >= 0;
+        return cell.toLowerCase().indexOf(String(f).toLowerCase()) >= 0;
       });
     });
     if (state.sortCol && COL_KEYS.indexOf(state.sortCol) >= 0) {
@@ -1723,6 +1730,7 @@
     suggestSection: suggestSection,
     sectionBadgeHtml: sectionBadgeHtml,
     ORGANISED_HEADERS: ORGANISED_HEADERS,
+    COL_KEYS: COL_KEYS,
     SECTION_ORDER: SECTION_ORDER,
     sectionColour: sectionColour,
     notesMap: notesMap,

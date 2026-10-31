@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.8-trial">
+<meta name="prepline-version" content="4.8.9-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -99,6 +99,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-486.js"></script>
 <script src="upgrades-487.js"></script>
 <script src="upgrades-488.js"></script>
+<script src="upgrades-489.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -938,7 +939,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.8</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.9</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -6218,6 +6219,9 @@ function batchGroupRowHtml(g, opts){
   const unbatch = isMerged
     ? `<button class="ghost pb-unbatch" type="button" onclick="unbatchLine('${encodeURIComponent(g.batchKey)}')" title="Split this batch back into per-dish lines">unbatch</button>`
     : '';
+  const moveNext = (!opts.print && g.batchKey && g.day)
+    ? `<button class="ghost u489-move-next" type="button" data-u489-move="${encodeURIComponent(g.batchKey)}" data-u489-day="${encodeURIComponent(g.day)}" title="Push this prep group to the next weekday">→ next day</button>`
+    : '';
   const tick = (window.PreplineUpgrades47 && !opts.print) ? PreplineUpgrades47.tickControlsHtml(g, escapeHtml) : '';
   const flag = isMerged ? `<span class="flagtag" style="background:var(--veg1-bg);color:var(--veg1);">×${g.rows.length} dishes</span>` : '';
   if (opts.print){
@@ -6231,7 +6235,7 @@ function batchGroupRowHtml(g, opts){
     </tr>`;
   }
   return `<tr class="${isMerged?'job-band-1':''}">
-    <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)} ${findSimilarBtn(g.taskLabel)}${unbatch}${reason}${tick}</td>
+    <td class="task">${escapeHtml(g.taskLabel)}${flag}${alChipsRowsHtml(g.rows)} ${findSimilarBtn(g.taskLabel)}${unbatch}${moveNext}${reason}${tick}</td>
     <td class="dish">${dishList}</td>
     <td class="qty">${totalCell}</td>
     <td>${escapeHtml(g.section||'')}</td>

@@ -1,4 +1,4 @@
-/* Prepline 4.8.8 — trial: smart-chef prep-day grouping + section toggles + sheet state.
+/* Prepline 4.8.9 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping + section toggles + sheet state.
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -333,8 +333,8 @@
 
   /* ---------- Unclear Paula 4-day rule notes (for report; not guesses) ---------- */
   var RULE_CLARIFICATIONS = [
-    'Wed vs Mon+Tue: batching.js Saturday maxFwd=min(winMax,3) so Sat covers Mon+Tue only — Wed is NOT in the Saturday Mon+Tue group. Wed falls under weekday cover (Mon can cover Wed–Fri with winMax 4).',
-    'Thu+Fri prep day: steering example says Monday, but batching.js greedy fresher-tie (same cover count → later weekday) may assign Tuesday for a Thu+Fri-only remainder. Trial reuses batching.js as-is; confirm with Paula whether fresher-tie or “Monday covers Wed–Fri” wins.',
+    'Wed vs Mon+Tue (4.8.9 Gerard): Saturday maxFwd=min(winMax,4) so Sat covers Mon+Tue+Wed when under saturdayCap; if Sat heavy / cap full, Wed pushes to Monday. In-app → next day moves a prep group on the fly.',
+    'Thu+Fri prep day (4.8.9 Gerard): earliest valid day = Monday (tie-break no longer fresher/later).',
     'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=1 (no cross-day merge), veg/garnish=2, gels/starch=3, poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4, micro=1. garnish/micro default batchable=false.',
     'Saturday: only for multi-use 4-day proteins (≥2 uses) when allowSaturdayStarts is off; saturdayCap default 3 then overflow to Friday.',
     'Sunday: never used as a prep start (always shifted).',
@@ -343,7 +343,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.8',
+    VERSION: '4.8.9',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

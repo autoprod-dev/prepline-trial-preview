@@ -5,10 +5,11 @@
  *   - Candidate prep days U-winMax .. U-1, Sunday never
  *   - Saturday: allowed for 4-day protein multi-use (>=2) even when allowSaturdayStarts is off;
  *     subject to saturdayCap (overflow → Friday). Singletons use weekend avoidance (no Sat unless allowed).
- *   - Cover: forwardDays(prep, use) in [1, maxFwd]; Saturday maxFwd = min(winMax, 3) (through Tue);
+ *   - Cover: forwardDays(prep, use) in [1, maxFwd]; Saturday maxFwd = min(winMax, 4) (through Wed);
  *     other days maxFwd = winMax (4-day protein Mon can cover through Fri)
  *   - Pick day covering the most subsequent uses; multi-use 4-day proteins require min lead 2;
- *     tie → later day (fresher). Solo (1 use) → prepStartFromLead (base lead + weekend rules).
+ *     tie → earliest valid day (Gerard 4.8.9). Solo (1 use) → prepStartFromLead (base lead + weekend rules).
+ *   - dayMoves: optional per-batchKey override to push a prep group to a later weekday on the fly.
  * Fish/seafood window 1: no cross-day merge.
  */
 (function (root) {
@@ -39,7 +40,8 @@
     batchable: Object.assign({}, DEFAULT_BATCHABLE),
     allowSaturdayStarts: false,
     saturdayCap: 3,
-    avoidWeekend: true
+    avoidWeekend: true,
+    dayMoves: {} /* batchKey → overridden prep weekday */
   };
 
   function dayIdx(d) { return WEEKDAYS.indexOf(d); }
@@ -445,9 +447,9 @@
     return cat === 'poultry' || cat === 'redmeat' || cat === 'crabcroq';
   }
 
-  /** Saturday prep lasts through Tuesday (fwd <= 3); weekdays use full winMax. */
+  /** Saturday prep lasts through Wednesday (fwd <= 4) when winMax allows; weekdays use full winMax. */
   function maxFwdForPrep(prepDay, winMax) {
-    if (prepDay === 'Saturday') return Math.min(winMax, 3);
+    if (prepDay === 'Saturday') return Math.min(winMax, 4);
     return winMax;
   }
 
@@ -597,6 +599,8 @@
       groups.push(singleton(s.row, deps));
     });
 
+    applyDayMoves(groups);
+
     groups.sort(function (a, b) {
       // Order by earliest use covered (so Sat→Mon/Tue appears before Mon→Wed/Fri), then prep day
       var ua = a.window && a.window.earliestFunc ? dayIdx(a.window.earliestFunc) : dayIdx(a.day);
@@ -651,8 +655,15 @@
           if (satUsed >= satCap) continue; // overflow → Fri / other candidates
         }
 
-        var better = !best || count > best.count ||
-          (count === best.count && dayIdx(D) > dayIdx(best.day));
+        /* 4.8.9 tie: more cover wins; same cover → prefer Saturday (smart-chef pack);
+         * otherwise earliest weekday (Thu+Fri → Monday, not Tuesday). */
+        var better = false;
+        if (!best || count > best.count) better = true;
+        else if (count === best.count) {
+          if (D === 'Saturday' && best.day !== 'Saturday') better = true;
+          else if (best.day === 'Saturday' && D !== 'Saturday') better = false;
+          else if (dayIdx(D) < dayIdx(best.day)) better = true;
+        }
         if (better) best = { day: D, count: count, offset: offset };
       }
 
@@ -810,6 +821,49 @@
     };
   }
 
+
+  function nextWeekday(day) {
+    var i = dayIdx(day);
+    if (i < 0) return 'Monday';
+    for (var n = 1; n <= 7; n++) {
+      var d = WEEKDAYS[(i + n) % 7];
+      if (d !== 'Sunday') return d;
+    }
+    return day;
+  }
+
+  /** Apply on-the-fly prep-day moves (batchKey → weekday). */
+  function applyDayMoves(groups) {
+    var moves = state.dayMoves || {};
+    (groups || []).forEach(function (g) {
+      if (!g || !g.batchKey) return;
+      var dest = moves[g.batchKey];
+      if (!dest || dayIdx(dest) < 0 || dest === 'Sunday') return;
+      g.day = dest;
+      if (g.window) g.window.day = dest;
+      (g.rows || []).forEach(function (r) {
+        if (r) r.day = dest;
+      });
+    });
+  }
+
+  /** Move one prep group to the next weekday (skip Sunday). Returns new day. */
+  function moveGroupToNextDay(batchKey, currentDay) {
+    if (!batchKey) return currentDay || '';
+    var from = currentDay || state.dayMoves[batchKey] || '';
+    var next = nextWeekday(from || 'Saturday');
+    state.dayMoves[batchKey] = next;
+    return next;
+  }
+
+  function clearDayMove(batchKey) {
+    if (batchKey) delete state.dayMoves[batchKey];
+  }
+
+  function clearAllDayMoves() {
+    state.dayMoves = {};
+  }
+
   function setBatchAcross(on) { state.batchAcrossOn = !!on; }
   function toggleUnbatch(key) {
     if (state.unbatched[key]) delete state.unbatched[key];
@@ -840,6 +894,7 @@
     if (typeof s.allowSaturdayStarts === 'boolean') state.allowSaturdayStarts = s.allowSaturdayStarts;
     if (Number.isFinite(Number(s.saturdayCap))) state.saturdayCap = Number(s.saturdayCap);
     if (typeof s.avoidWeekend === 'boolean') state.avoidWeekend = s.avoidWeekend;
+    if (s.dayMoves && typeof s.dayMoves === 'object') state.dayMoves = Object.assign({}, s.dayMoves);
   }
   function exportState() {
     return {
@@ -851,7 +906,8 @@
       batchable: Object.assign({}, state.batchable),
       allowSaturdayStarts: state.allowSaturdayStarts,
       saturdayCap: state.saturdayCap,
-      avoidWeekend: state.avoidWeekend
+      avoidWeekend: state.avoidWeekend,
+      dayMoves: Object.assign({}, state.dayMoves)
     };
   }
 
@@ -980,6 +1036,11 @@
     prepStartFromLead: prepStartFromLead,
     validDayWindow: validDayWindow,
     buildBatches: buildBatches,
+    applyDayMoves: applyDayMoves,
+    moveGroupToNextDay: moveGroupToNextDay,
+    clearDayMove: clearDayMove,
+    clearAllDayMoves: clearAllDayMoves,
+    nextWeekday: nextWeekday,
     filterRows: filterRows,
     dayCounts: dayCounts,
     stickyBarHtml: stickyBarHtml,
