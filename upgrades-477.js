@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+… +4.8.14 week-ending title + DONE tick) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.15 week-ending title + DONE tick) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED | DONE (☐/☑ tick). Print titles repeat WE+section+header every page.
@@ -403,6 +403,28 @@
     return 9999;
   }
 
+
+  /**
+   * 4.8.15: Move leading "DF " off the A–Z key so "DF Asparagus …" sorts with Asparagus.
+   * "DF Asparagus ( NO BUTTER) / Trim…" → "Asparagus DF ( NO BUTTER) / Trim…"
+   * Already-suffixed names ("Kombu Powder DF", "… GF DF") are left alone.
+   */
+  function renameDfPrefix(item) {
+    var s = String(item == null ? '' : item);
+    var m = s.match(/^DF\s+(.+)$/i);
+    if (!m) return s;
+    var rest = m[1];
+    var paren = rest.search(/\s*\(/);
+    var slash = rest.indexOf(' /');
+    if (paren >= 0 && (slash < 0 || paren < slash)) {
+      return rest.slice(0, paren).replace(/\s+$/, '') + ' DF' + rest.slice(paren);
+    }
+    if (slash >= 0) {
+      return rest.slice(0, slash).replace(/\s+$/, '') + ' DF' + rest.slice(slash);
+    }
+    return rest.replace(/\s+$/, '') + ' DF';
+  }
+
   function buildPaulaRows(rows, helpers) {
     helpers = helpers || {};
     var list = Array.isArray(rows) ? rows.slice() : [];
@@ -435,8 +457,10 @@
       var sheet = sheetForItem(r.task, sec);
       /* 4.8.7: Section text always matches the tab (overrides colour/keyword when heuristics move the row). */
       var sectionOut = sheet === OTHER_SHEET ? (sec || '—') : sectionForSheet(sheet);
+      /* 4.8.15: DF prefix → name DF so A–Z groups with the ingredient. */
+      var itemOut = renameDfPrefix(r.task);
       out.push({
-        item: r.task,
+        item: itemOut,
         qtyPerPax: pp.n,
         unit: pp.unit || '',
         pax: paxFor(r, helpers),
@@ -448,7 +472,7 @@
         sourceTab: src,
         staff: staffAllocated(r, helpers),
         sheet: sheet,
-        itemNorm: String(r.task || '').toLowerCase().replace(/\s+/g, ' ').trim(),
+        itemNorm: String(itemOut || '').toLowerCase().replace(/\s+/g, ' ').trim(),
         dish: r.dish || '',
         dishKey: dishKey,
         prepSort: prepDaySortKey(prepLab, rawDay),
@@ -473,17 +497,20 @@
       var st = sheetState || (typeof root.Prepline488.getSheetState === 'function' ? root.Prepline488.getSheetState() : null);
       out = root.Prepline488.applySheetState(out, st);
     } else if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
-      /* 4.8.8 smart chef: prep-date block → Item A–Z → Source A–Z */
+      /* 4.8.15 smart chef: prep-date → function/event order → Item A–Z → Source */
       out.sort(root.Prepline488.smartChefSort);
     } else {
       out.sort(function (a, b) {
         if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
-        if (a.itemNorm < b.itemNorm) return -1;
-        if (a.itemNorm > b.itemNorm) return 1;
+        var ea = (typeof a.eventSort === 'number') ? a.eventSort : 9999;
+        var eb = (typeof b.eventSort === 'number') ? b.eventSort : 9999;
+        if (ea !== eb) return ea - eb;
         var sa = String(a.sourceTab || '').toLowerCase();
         var sb = String(b.sourceTab || '').toLowerCase();
         if (sa < sb) return -1;
         if (sa > sb) return 1;
+        if (a.itemNorm < b.itemNorm) return -1;
+        if (a.itemNorm > b.itemNorm) return 1;
         return 0;
       });
     }
@@ -840,11 +867,12 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.14',
+    VERSION: '4.8.15',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
     actualPrepSortKey: actualPrepSortKey,
+    renameDfPrefix: renameDfPrefix,
     prepColourGroupId: prepColourGroupId,
     pastelForGroup: pastelForGroup,
     PREP_PASTELS: PREP_PASTELS,

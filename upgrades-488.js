@@ -1,4 +1,4 @@
-/* Prepline 4.8.14 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.15 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -59,15 +59,19 @@
     var col = (st && st.sortCol) || 'actualPrep';
     var dir = (st && st.sortDir) === 'desc' ? -1 : 1;
     list.sort(function (a, b) {
-      /* Always keep smart-chef block integrity: prep date first, then item, then source. */
+      /* 4.8.15: prep date → function/event → source tab (function cluster) → item A–Z.
+         User sortCol (when not one of the primary keys) is a final tie-break. */
       if (a.actualPrep !== b.actualPrep) return (a.actualPrep - b.actualPrep) * dir;
-      if (a.itemNorm < b.itemNorm) return -1;
-      if (a.itemNorm > b.itemNorm) return 1;
+      var ea = (typeof a.eventSort === 'number') ? a.eventSort : 9999;
+      var eb = (typeof b.eventSort === 'number') ? b.eventSort : 9999;
+      if (ea !== eb) return (ea - eb) * dir;
       var sa = String(a.sourceTab || '').toLowerCase();
       var sb = String(b.sourceTab || '').toLowerCase();
       if (sa < sb) return -1;
       if (sa > sb) return 1;
-      if (col !== 'actualPrep' && col !== 'itemNorm' && col !== 'sourceTab') {
+      if (a.itemNorm < b.itemNorm) return -1;
+      if (a.itemNorm > b.itemNorm) return 1;
+      if (col !== 'actualPrep' && col !== 'itemNorm' && col !== 'sourceTab' && col !== 'eventSort') {
         var va = a[col], vb = b[col];
         if (va < vb) return -1 * dir;
         if (va > vb) return 1 * dir;
@@ -212,13 +216,19 @@
 
   /* Default organised sort: prep date → item A–Z → source tab */
   function smartChefSort(a, b) {
+    /* 4.8.15: prep-date block → function/event day → source tab (function) → Item A–Z.
+       Earlier functions (1 MON Bannockburn …) float above later ones; same-day
+       functions stay clustered so staff work one function at a time. */
     if (a.actualPrep !== b.actualPrep) return a.actualPrep - b.actualPrep;
-    if (a.itemNorm < b.itemNorm) return -1;
-    if (a.itemNorm > b.itemNorm) return 1;
+    var ea = (typeof a.eventSort === 'number') ? a.eventSort : 9999;
+    var eb = (typeof b.eventSort === 'number') ? b.eventSort : 9999;
+    if (ea !== eb) return ea - eb;
     var sa = String(a.sourceTab || '').toLowerCase();
     var sb = String(b.sourceTab || '').toLowerCase();
     if (sa < sb) return -1;
     if (sa > sb) return 1;
+    if (a.itemNorm < b.itemNorm) return -1;
+    if (a.itemNorm > b.itemNorm) return 1;
     return 0;
   }
 
@@ -370,7 +380,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.14',
+    VERSION: '4.8.15',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,
