@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.19-trial">
+<meta name="prepline-version" content="4.8.20-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -100,6 +100,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-487.js"></script>
 <script src="upgrades-488.js"></script>
 <script src="upgrades-489.js"></script>
+<script src="upgrades-4820.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -939,7 +940,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.19</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.20</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5364,6 +5365,9 @@ function render(){
     ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Paula Sorted layout: one tab per section, yellow header, Total needed = qty × pax">📊 Organised export (yellow header)</button>
     <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
+    <button class="secondary" onclick="printA3Calendar4820()" type="button" title="One-page A3 landscape prep calendar: days × sections">🖨️ Print A3 calendar</button>
+    <button class="secondary" onclick="exportA3CalendarXlsx4820()" type="button" title="A3 prep calendar as Excel">📊 A3 calendar · Excel</button>
+    <button class="secondary" onclick="exportA3CalendarPdf4820()" type="button" title="Save A3 prep calendar as PDF">🧾 A3 calendar · PDF</button>
     <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>`;
   const u480PrintBtns = `<button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
     <button class="secondary" onclick="printAllDays()" type="button">🖨️ Print all prep days (one page complete)</button>
@@ -8692,6 +8696,45 @@ function renderBrief47(){
 function renderSwap47(){
   if (!window.PreplineUpgrades47 || !PreplineUpgrades47.swapToolHtml) return '<div class="panel">Swap tool unavailable</div>';
   return PreplineUpgrades47.swapToolHtml(viewRows(), batchDeps(), { cleanDishName, escapeHtml, paxByDish, defaultStaff:'Unallocated' });
+}
+function a3CalHelpers4820(){
+  const staffBySection = {};
+  (typeof SECTIONS!=='undefined'?SECTIONS:[]).forEach(s=>{ staffBySection[s] = leaderBySection[s] || 'Unallocated'; });
+  const srcFile = (typeof sourceInfo!=='undefined' && sourceInfo && sourceInfo.name)
+    || (document.getElementById('fileTag') && document.getElementById('fileTag').textContent)
+    || '';
+  return {
+    cleanDishName, staffBySection, defaultStaff: 'Unallocated', paxByDish,
+    allergenText: typeof allergenText==='function' ? allergenText : undefined,
+    dayLabel: typeof dayLabel==='function' ? dayLabel : undefined,
+    srcName: typeof srcName==='function' ? srcName : undefined,
+    exportPerPax: typeof exportPerPax==='function' ? exportPerPax : undefined,
+    getEventDay: typeof getEventDay==='function' ? getEventDay : undefined,
+    getEventDateStr: typeof getEventDateStr==='function' ? getEventDateStr : undefined,
+    sourceFileName: srcFile,
+    staffEstimates: true,
+    weekLabel: (typeof localYMD==='function'?localYMD():new Date().toISOString().slice(0,10))
+  };
+}
+function printA3Calendar4820(){
+  if (!window.Prepline4820){ setStatus('A3 calendar unavailable', 'err'); return; }
+  try{
+    const r = Prepline4820.printA3Calendar(viewRows(), a3CalHelpers4820());
+    setStatus('A3 calendar print · '+(r&&r.lines||0)+' jobs · font '+(r&&r.baseFont)+'pt — choose A3 landscape / Save as PDF.', 'ok');
+  }catch(e){ setStatus('A3 calendar failed: '+(e&&e.message||e), 'err'); }
+}
+function exportA3CalendarXlsx4820(){
+  if (!window.Prepline4820){ setStatus('A3 calendar unavailable', 'err'); return; }
+  try{
+    const res = Prepline4820.exportA3CalendarXlsx(viewRows(), a3CalHelpers4820());
+    const done = (r)=>setStatus('A3 calendar Excel: '+(r&&r.rows)+' jobs · '+(r&&r.days)+' days · '+(r&&r.engine||'xlsx')+'.', 'ok');
+    if (res && typeof res.then==='function') res.then(done).catch(e=>setStatus('A3 Excel failed: '+(e&&e.message||e), 'err'));
+    else done(res);
+  }catch(e){ setStatus('A3 Excel failed: '+(e&&e.message||e), 'err'); }
+}
+function exportA3CalendarPdf4820(){
+  /* Opens the same A3 print document — user Save as PDF at A3 landscape. */
+  printA3Calendar4820();
 }
 function exportOrganisedXlsx47(){
   if (!window.PreplineUpgrades47){ setStatus('Organised export unavailable', 'err'); return; }

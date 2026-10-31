@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+… +4.8.19 same-item batch staff times; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.19 same-item batch staff times; 4.8.20 A3 prep calendar; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (est.). Print titles repeat WE+section+header every page.
@@ -1121,7 +1121,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.19',
+    VERSION: '4.8.20',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
@@ -1141,5 +1141,7 @@
     PREP_PASTELS: PREP_PASTELS,
     weekdayNum: weekdayNum,
     resolveWeekEndingLabel: resolveWeekEndingLabel,
+    loadExcelJS: loadExcelJS,
+    sheetForItem: sheetForItem,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
