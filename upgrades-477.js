@@ -1,6 +1,6 @@
 /* Prepline 4.7.7 (+4.7.8/4.8.8 sort, +4.8.2 rules, +4.8.7 Section=tab, +4.8.8 smart-chef prep-day groups + pastel) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; yellow header row; title row; flat item rows (not batched).
- * Columns: Item | Quantity per pax | Unit | PAX | Total needed (=B*D) | BAT/PO # | Section |
+ * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (blank write-in).
  */
 (function (root) {
@@ -422,10 +422,20 @@
   }
 
 
-  /** Total needed cell: formula with cached result for Protected View.
+  /** Total needed cell: plain numeric qty×pax (4.8.10).
+   *  Prefer values over formulas so Excel, Protected View, LibreOffice,
+   *  Google Sheets and phone previews never show literal "=B3*D3".
    *  Non-numeric or missing qty/pax → blank (never #VALUE). */
   function totalNeededCell(r, excelRow) {
-    if (r.fixedTotal != null && r.fixedTotal !== '') return r.fixedTotal;
+    if (r.fixedTotal != null && r.fixedTotal !== '') {
+      var ft = r.fixedTotal;
+      if (typeof ft === 'number' && isFinite(ft)) return ft;
+      if (typeof ft === 'string' && ft.trim() !== '') {
+        var fn = Number(String(ft).replace(/,/g, ''));
+        if (isFinite(fn)) return fn;
+      }
+      return ft;
+    }
     if (r.nonNumeric) return '';
     var q = r.qtyPerPax;
     var p = r.pax;
@@ -439,8 +449,7 @@
     }
     if (q === '' || p === '' || q == null || p == null) return '';
     if (!isFinite(qn) || !isFinite(pn)) return '';
-    var product = qn * pn;
-    return { formula: 'B' + excelRow + '*D' + excelRow, result: product };
+    return qn * pn;
   }
 
   function fillSheetExcelJS(ws, sheetTitle, rows) {
@@ -470,7 +479,7 @@
       row.getCell(3).value = r.unit || '';
       if (typeof r.pax === 'number') row.getCell(4).value = r.pax;
       else row.getCell(4).value = r.pax === '' ? '' : r.pax;
-      /* Total needed: formula + cached result so Protected View / LibreOffice / phones show a value. */
+      /* Total needed: plain number (qty×pax) — never a formula string. */
       row.getCell(5).value = totalNeededCell(r, excelRow);
       row.getCell(6).value = r.batPo || '';
       row.getCell(7).value = r.section || '';
@@ -505,18 +514,12 @@
     var aoa = [];
     aoa.push([sheetTitle, '', '', '', '', '', '', '', '', '']);
     aoa.push(HEADERS.slice());
-    var formulas = [];
     rows.forEach(function (r, idx) {
       var excelRow = idx + 3;
       var qty = r.qtyPerPax == null ? '' : r.qtyPerPax;
       var pax = r.pax === '' ? '' : r.pax;
-      var totCell = totalNeededCell(r, excelRow);
-      var tot = '';
-      if (totCell && typeof totCell === 'object' && totCell.formula) {
-        formulas.push({ r: excelRow - 1, c: 4, f: totCell.formula, v: totCell.result });
-      } else if (totCell !== '' && totCell != null) {
-        tot = totCell;
-      }
+      var tot = totalNeededCell(r, excelRow);
+      if (tot === '' || tot == null) tot = '';
       aoa.push([
         r.item, qty, r.unit || '', pax, tot,
         r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || ''
@@ -524,10 +527,6 @@
     });
     var ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
-    formulas.forEach(function (fc) {
-      var addr = XLSX.utils.encode_cell({ r: fc.r, c: fc.c });
-      ws[addr] = { t: 'n', f: fc.f, v: (fc.v != null && isFinite(fc.v)) ? fc.v : 0 };
-    });
     var yellow = { patternType: 'solid', fgColor: { rgb: 'FFFF00' } };
     var boldH = { bold: true, name: 'Calibri', sz: 12 };
     var titleF = { bold: true, name: 'Calibri', sz: 16 };
@@ -661,7 +660,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.9',
+    VERSION: '4.8.10',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,

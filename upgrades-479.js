@@ -133,7 +133,11 @@
         if (q !== '' && q != null && isFinite(Number(q))) row.getCell(3).value = Number(q);
         else if (q != null && q !== '') row.getCell(3).value = q;
         row.getCell(4).value = r.unit || '';
-        row.getCell(5).value = { formula: 'C' + rowIdx + '*$C$3' };
+        /* 4.8.10: plain qty×pax number — never a formula. */
+        var qn = (q !== '' && q != null && isFinite(Number(q))) ? Number(q) : NaN;
+        var pn = (pax !== '' && pax != null && isFinite(Number(pax))) ? Number(pax) : NaN;
+        if (isFinite(qn) && isFinite(pn)) row.getCell(5).value = qn * pn;
+        else row.getCell(5).value = '';
         row.getCell(6).value = r.section || (typeof pbSection === 'function' ? pbSection(r) : '') || '';
         var day = r.day ? (typeof dayLabel === 'function' ? dayLabel(r.day) : r.day) : '';
         row.getCell(7).value = day;
@@ -277,7 +281,7 @@
   root.exportAsIsXlsxWithPhotos = exportAsIsXlsxWithPhotos;
   root.buildAsIsXlsxWithPhotos = buildAsIsXlsxWithPhotos;
   root.Prepline479 = {
-    VERSION: '4.7.9',
+    VERSION: '4.8.10',
     exportAsIsXlsxWithPhotos: exportAsIsXlsxWithPhotos,
     dishPhotoFor: dishPhotoFor
   };

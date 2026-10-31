@@ -1,4 +1,4 @@
-/* Prepline 4.8.9 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping + section toggles + sheet state.
+/* Prepline 4.8.10 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping + section toggles + sheet state.
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -343,7 +343,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.9',
+    VERSION: '4.8.10',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

@@ -194,7 +194,7 @@
               2: { v: 'kg' },
               3: { v: 'Hot' },
               4: { v: 100, t: 2 },
-              5: { f: '=B5*E5' }
+              5: { v: 4, t: 2 }
             },
             5: {
               0: { v: 'Chicken breast', s: { bg: { rgb: '#FFC7CE' } } },
@@ -202,7 +202,7 @@
               2: { v: 'kg' },
               3: { v: 'Hot' },
               4: { v: 100, t: 2 },
-              5: { f: '=B6*E6' }
+              5: { v: 18, t: 2 }
             },
             6: {
               0: { v: 'Micro herbs', s: { bg: { rgb: '#FCE4D6' } } },
@@ -210,7 +210,7 @@
               2: { v: 'g' },
               3: { v: 'Garnish' },
               4: { v: 100, t: 2 },
-              5: { f: '=B7*E7' }
+              5: { v: 200, t: 2 }
             },
             7: {
               0: { v: 'Potato puree', s: { bg: { rgb: '#FFEB9C' } } },
@@ -218,7 +218,7 @@
               2: { v: 'kg' },
               3: { v: 'Hot' },
               4: { v: 100, t: 2 },
-              5: { f: '=B8*E8' }
+              5: { v: 8, t: 2 }
             },
             10: {
               0: { v: 'Colour legend', s: { bl: 1 } },
@@ -574,7 +574,7 @@
     openWithData(blankWorkbookData(), {
       mode: 'blank',
       title: 'Build a prep sheet',
-      hint: 'Starter template with fills and Total formulas. Edit freely (add sheets, freeze, filter), then Sort into preplist.'
+      hint: 'Starter template with fills and plain Total values (qty×pax). Edit freely (add sheets, freeze, filter), then Sort into preplist.'
     }).catch(function () {});
   }
 
