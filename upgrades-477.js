@@ -1,7 +1,7 @@
-/* Prepline 4.7.7 (+… +4.8.15 week-ending title + DONE tick) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.16 week-ending title; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
- * Prep day | Source tab | STAFF ALLOCATED | DONE (☐/☑ tick). Print titles repeat WE+section+header every page.
+ * Prep day | Source tab | STAFF ALLOCATED. Print titles repeat WE+section+header every page.
  */
 (function (root) {
   'use strict';
@@ -26,14 +26,12 @@
 
   var HEADERS = [
     'Item', 'Quantity per pax', 'Unit', 'PAX ', 'Total needed',
-    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED', 'DONE'
+    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED'
   ];
 
-  var COL_WIDTHS = [38.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 34.75, 28.75, 8.5];
+  /* 10 cols (DONE tick removed 4.8.16) — widths fit landscape print */
+  var COL_WIDTHS = [40.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 36.75, 30.75];
   var COL_COUNT = HEADERS.length;
-  var DONE_COL = COL_COUNT; /* 1-based */
-  var DONE_UNCHECKED = '\u2610'; /* ☐ */
-  var DONE_CHECKED = '\u2611'; /* ☑ */
   /* Rows: 1=WEEK ENDING, 2=section title, 3=yellow headers, 4+=data */
   var TITLE_WE_ROW = 1;
   var TITLE_SECTION_ROW = 2;
@@ -405,7 +403,7 @@
 
 
   /**
-   * 4.8.15: Move leading "DF " off the A–Z key so "DF Asparagus …" sorts with Asparagus.
+   * 4.8.16: Move leading "DF " off the A–Z key so "DF Asparagus …" sorts with Asparagus.
    * "DF Asparagus ( NO BUTTER) / Trim…" → "Asparagus DF ( NO BUTTER) / Trim…"
    * Already-suffixed names ("Kombu Powder DF", "… GF DF") are left alone.
    */
@@ -457,7 +455,7 @@
       var sheet = sheetForItem(r.task, sec);
       /* 4.8.7: Section text always matches the tab (overrides colour/keyword when heuristics move the row). */
       var sectionOut = sheet === OTHER_SHEET ? (sec || '—') : sectionForSheet(sheet);
-      /* 4.8.15: DF prefix → name DF so A–Z groups with the ingredient. */
+      /* 4.8.16: DF prefix → name DF so A–Z groups with the ingredient. */
       var itemOut = renameDfPrefix(r.task);
       out.push({
         item: itemOut,
@@ -497,7 +495,7 @@
       var st = sheetState || (typeof root.Prepline488.getSheetState === 'function' ? root.Prepline488.getSheetState() : null);
       out = root.Prepline488.applySheetState(out, st);
     } else if (root.Prepline488 && typeof root.Prepline488.smartChefSort === 'function') {
-      /* 4.8.15 smart chef: prep-date → function/event order → Item A–Z → Source */
+      /* 4.8.16 smart chef: prep-date → function/event order → Item A–Z → Source */
       out.sort(root.Prepline488.smartChefSort);
     } else {
       out.sort(function (a, b) {
@@ -615,9 +613,7 @@
       row.getCell(8).value = r.prepDay || '';
       row.getCell(9).value = r.sourceTab || '';
       row.getCell(10).value = r.staff || '';
-      row.getCell(DONE_COL).value = DONE_UNCHECKED;
       for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
-      row.getCell(DONE_COL).alignment = { horizontal: 'center', vertical: 'middle' };
       if (!colourMap) colourMap = {};
       var gid = r.prepColourId || prepColourGroupId(r.prepDay, r.actualPrep);
       var pastel = pastelForGroup(gid, colourMap);
@@ -640,30 +636,6 @@
       from: { row: HEADER_ROW, column: 1 },
       to: { row: Math.max(HEADER_ROW, lastDataRow), column: lastCol }
     };
-
-    /* DONE tick dropdown — ☐ / ☑ (prints as empty box; pen-friendly) */
-    var doneRange = colLetter(DONE_COL) + DATA_START_ROW + ':' + colLetter(DONE_COL) + Math.max(DATA_START_ROW, lastDataRow + 50);
-    try {
-      ws.dataValidations.add(doneRange, {
-        type: 'list',
-        allowBlank: true,
-        showErrorMessage: true,
-        formulae: ['"' + DONE_UNCHECKED + ',' + DONE_CHECKED + '"']
-      });
-    } catch (e) { /* older ExcelJS */ }
-
-    /* Grey out whole row when DONE = ☑ */
-    try {
-      var cfRef = 'A' + DATA_START_ROW + ':' + colLetter(lastCol) + Math.max(DATA_START_ROW, lastDataRow + 50);
-      ws.addConditionalFormatting({
-        ref: cfRef,
-        rules: [{
-          type: 'expression',
-          formulae: ['$' + colLetter(DONE_COL) + DATA_START_ROW + '="' + DONE_CHECKED + '"'],
-          style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFD9D9D9' } } }
-        }]
-      });
-    } catch (e2) {}
 
     /* Print: WE + section + yellow header on EVERY page */
     ws.pageSetup = {
@@ -711,8 +683,7 @@
       if (tot === '' || tot == null) tot = '';
       aoa.push([
         r.item, qty, r.unit || '', pax, tot,
-        r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || '',
-        DONE_UNCHECKED
+        r.batPo || '', r.section || '', r.prepDay || '', r.sourceTab || '', r.staff || ''
       ]);
     });
     var ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -867,7 +838,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.15',
+    VERSION: '4.8.16',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
@@ -878,7 +849,5 @@
     PREP_PASTELS: PREP_PASTELS,
     weekdayNum: weekdayNum,
     resolveWeekEndingLabel: resolveWeekEndingLabel,
-    DONE_UNCHECKED: DONE_UNCHECKED,
-    DONE_CHECKED: DONE_CHECKED
   };
 })(typeof window !== 'undefined' ? window : globalThis);
