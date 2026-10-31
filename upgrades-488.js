@@ -1,4 +1,4 @@
-/* Prepline 4.8.24 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.25 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -144,19 +144,32 @@
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
         }
       }
-      /* 4.8.12: refine plain veg → vegraw/vegcook so packs never mix stages. */
-      if (r.prepCat === 'veg' || r.prepCat === 'vegraw' || r.prepCat === 'vegcook') {
-        if (typeof root.classifyVegPrepStage === 'function') {
-          var st = root.classifyVegPrepStage(r.task || r.item || '');
-          r.prepCat = st.key;
-          r.leadDays = st.key === 'vegraw' ? 4 : 3;
-          r.vegStage = st.stage;
-          r.vegStageClear = !!st.clear;
-        } else {
-          r.prepCat = 'vegcook';
-          if (!Number.isFinite(r.leadDays)) r.leadDays = 3;
+      /* 4.8.25: Gerard soft/hard first; else vegraw/vegcook. Also garnish→hard list hits. */
+      (function () {
+        var task = r.task || r.item || '';
+        if (typeof root.classifyGerardVeg === 'function') {
+          var g = root.classifyGerardVeg(task);
+          if (g && g.covered) {
+            r.prepCat = g.key;
+            r.leadDays = g.lead;
+            r.vegStage = g.stage;
+            r.vegStageClear = true;
+            return;
+          }
         }
-      }
+        if (r.prepCat === 'veg' || r.prepCat === 'vegraw' || r.prepCat === 'vegcook' || r.prepCat === 'vegsoft' || r.prepCat === 'veghard') {
+          if (typeof root.classifyVegPrepStage === 'function') {
+            var st = root.classifyVegPrepStage(task);
+            r.prepCat = st.key;
+            r.leadDays = st.key === 'vegraw' || st.key === 'veghard' ? 4 : (st.key === 'vegsoft' ? 2 : 3);
+            r.vegStage = st.stage;
+            r.vegStageClear = !!st.clear;
+          } else {
+            r.prepCat = 'vegcook';
+            if (!Number.isFinite(r.leadDays)) r.leadDays = 3;
+          }
+        }
+      })();
       /* Never let leadDays exceed the food-type window (and vice versa floor for seafood). */
       if (r.prepCat && root.PreplineBatch && typeof root.PreplineBatch.batchWindowFor === 'function') {
         var w = root.PreplineBatch.batchWindowFor(r.prepCat, r.leadDays);
@@ -382,7 +395,7 @@
   var RULE_CLARIFICATIONS = [
     'Wed vs Mon+Tue (4.8.9 Gerard): Saturday maxFwd=min(winMax,4) so Sat covers Mon+Tue+Wed when under saturdayCap; if Sat heavy / cap full, Wed pushes to Monday. In-app → next day moves a prep group on the fly.',
     'Thu+Fri prep day (4.8.9 Gerard): earliest valid day = Monday (tie-break no longer fresher/later).',
-    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=2 (4.8.13); prawn=1 not batchable (4.8.24); vegraw=4 / vegcook|veg=3; garnish=2; gels/starch=3; poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1. garnish/micro/prawn default batchable=false.',
+    'Exception list: DEFAULT_BATCH_WINDOW — seafood/fish=2; prawn=1 not batchable; vegsoft=2 / veghard=4 (4.8.25 Gerard); vegraw=4 / vegcook|veg=3 fallback; garnish=2; gels/starch=3; poultry/redmeat/crabcroq/dry/oil/dairy/dressing=4; micro=1 not batchable. garnish/micro/prawn default batchable=false.',
     'Saturday: only for multi-use 4-day proteins (≥2 uses) when allowSaturdayStarts is off; saturdayCap default 3 then overflow to Friday.',
     'Sunday: never used as a prep start (always shifted).',
     'Solo (single use): uses prepStartFromLead (base lead + weekend avoidance), not the multi-use Saturday pack.',
@@ -390,7 +403,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.24',
+    VERSION: '4.8.25',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

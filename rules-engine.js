@@ -88,7 +88,7 @@
       weekendShift: true, // 4.6.2: weekend avoidance for ALL categories (profile toggle)
       allowSaturdayStarts: false, // default: no Saturday starts
       saturdayCap: 3, // optional soft cap when Saturday starts allowed
-      prepDaysVersion: '4.8.24',
+      prepDaysVersion: '4.8.25',
       batchable: batchable, // cross-dish batching on/off per prep category
       rules: rules,
       updatedAt: new Date().toISOString()
@@ -164,12 +164,35 @@
             o.version = 5;
             saveStore(o);
           }
+          // 4.8.25: Gerard soft/hard veg + micro 1-day not batched; refresh built-in Default
+          if (!o.version || o.version < 6) {
+            var fresh6 = defaultFromVocab();
+            o.profiles.forEach(function (pr) {
+              if (!pr.batchable || typeof pr.batchable !== 'object') pr.batchable = Object.assign({}, fresh6.batchable);
+              else {
+                Object.keys(fresh6.batchable || {}).forEach(function (k) {
+                  if (pr.batchable[k] === undefined) pr.batchable[k] = fresh6.batchable[k];
+                });
+              }
+              pr.batchable.micro = false;
+              pr.batchable.prawn = false;
+              if (pr.id === 'default' && pr.builtIn) {
+                pr.rules = fresh6.rules;
+                pr.batchable = Object.assign({}, fresh6.batchable);
+                pr.batchable.micro = false;
+                pr.batchable.prawn = false;
+                pr.prepDaysVersion = '4.8.25';
+              }
+            });
+            o.version = 6;
+            saveStore(o);
+          }
           return o;
         }
       }
     } catch (e) {}
     var def = defaultFromVocab();
-    var store = { profiles: [def], version: 5 };
+    var store = { profiles: [def], version: 6 };
     saveStore(store);
     return store;
   }

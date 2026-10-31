@@ -124,7 +124,7 @@
       var vocab = (window.PREP_DAYS_VOCAB || []);
       box.innerHTML = vocab.map(function (c) {
         /* 4.8.24: prawn omitted from default-on list → stays false (no Mon/Sat early batch). */
-        var on = p.batchable[c.key] !== false && (p.batchable[c.key] === true || ['poultry','redmeat','seafood','veg','dry','oil','gels','dressing','dairy','starch','crabcroq'].indexOf(c.key) >= 0);
+        var on = p.batchable[c.key] !== false && (p.batchable[c.key] === true || ['poultry','redmeat','seafood','veg','vegsoft','veghard','vegraw','vegcook','dry','oil','gels','dressing','dairy','starch','crabcroq'].indexOf(c.key) >= 0);
         if (p.batchable[c.key] === undefined) p.batchable[c.key] = on;
         if (c.key === 'prawn') { p.batchable.prawn = false; on = false; }
         return '<label style="font-size:12.5px;display:inline-flex;align-items:center;gap:5px;cursor:pointer">' +

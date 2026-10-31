@@ -1,4 +1,4 @@
-/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.13 / 4.8.24).
+/* PrepLine by Autoprod: prep start days by ingredient type (4.6.2 / 4.8.13 / 4.8.24 / 4.8.25).
  * EDIT THIS FILE to change the rules. Each category has:
  *   lead   - how many days BEFORE the event/function day the job starts (0 = on the day)
  *   weekendShift - if true, Sat/Sun starts use weekend avoidance (forward Mon / back Fri).
@@ -15,11 +15,17 @@
  * Prawns (Gerard 4.8.24): lead=1, batchWindow=1, not cross-batched —
  *   Paula orders prawns the day before the event for freshness; prep 1 day before only.
  *   Must not be pulled earlier via Mon/Sat batching. Crab croquettes stay 4-day (crabcroq).
- * Veg-only stage split: vegraw≤4, vegcook≤3. Unclear veg → vegcook.
+ * Veg (Gerard 4.8.25): named soft=2 / hard=4 lists replace generic collect/cook split for those items.
+ *   Soft: zucchini(+flower), radish, sauteed warrigal, shaved fennel, celeriac remoulade, apple.
+ *   Hard: carrots, pickled veg, onions, beetroot, pumpkin, sweet potato, parsnip, potato, leeks,
+ *   pencil leek, turnips, roasted/sous-vide fennel, gem lettuce, witlof, picked leaves, flowers,
+ *   edible/garlic flowers, iceplant, samphire, karkalla, seablight, picked warrigal.
+ *   Specificity: sauteed warrigal=2 vs picked warrigal=4; shaved fennel=2 vs roasted/sous vide=4.
+ *   Micro herbs: lead=1, not early-batched. Unlisted veg still use vegraw≤4 / vegcook≤3 fallback.
  */
 
 window.PREP_DAYS_VOCAB = [
-  {key:'micro',   label:'Micro herbs',             lead:1, batchWindow:1, weekendShift:true, family:'garnish',
+  {key:'micro',   label:'Micro herbs (1 day)',     lead:1, batchWindow:1, weekendShift:true, family:'garnish',
    legend:['micro herbs','micro greens','micro herb','micros','micro'],
    words:['micro*','tendril*','sprout*','cress','shoots','pea shoots','baby herbs']},
   {key:'dry',     label:'Dry garnish and crumbs',  lead:4, batchWindow:4, weekendShift:true, family:'garnish',
@@ -47,11 +53,17 @@ window.PREP_DAYS_VOCAB = [
   {key:'garnish', label:'Garnish, pick herbs',     lead:2, batchWindow:2, weekendShift:true, family:'garnish',
    legend:['garnish','garnishes','pick herbs','picked herbs','herbs','garnish pick herbs','garnishes pick herbs'],
    words:['garnish*','pick','picked','herb','herbs','parsley','chervil','dill','coriander','mint','basil','chive*','tarragon','sage','thyme','rosemary','oregano','shiso','edible flower*','flower edible','flowers','pickle*','pickled','viola','allysium','alyssum','sorrel','red vein','soaked raisin','raisin','fennel seed','seed mix','pea tendril','tendril','blossom*','zucchini blossom','salmon roe','trout roe','roe','caviar','tobiko','karkalla','samphire','sea blite']},
-  /* 4.8.12 Gerard: veg raw collect/trim up to 4 days; cooked stages max 3 (prefer 2–3).
-   * Matching still uses produce words → key 'veg', then classifyVegPrepStage refines to vegraw|vegcook. */
+  /* 4.8.25 Gerard soft/hard veg (named lists). Matching still uses produce words → 'veg',
+   * then classifyGerardVeg / classifyVegPrepStage refine to vegsoft|veghard|vegraw|vegcook. */
+  {key:'vegsoft', label:'Vegetables (soft · 2 days)', lead:2, batchWindow:2, weekendShift:true, family:'veg',
+   legend:['soft veg','soft vegetables','veg soft'],
+   words:[]},
+  {key:'veghard', label:'Vegetables (hard · 4 days)', lead:4, batchWindow:4, weekendShift:true, family:'veg',
+   legend:['hard veg','hard vegetables','veg hard'],
+   words:[]},
   {key:'veg',     label:'Vegetables',              lead:3, batchWindow:3, weekendShift:true, family:'veg',
    legend:['veg','vege','veges','veggies','vegetable','vegetables'],
-   words:['veg','vege','vegetable*','carrot*','dutch carrot*','baby carrot*','onion*','shallot*','eschalot*','leek*','celery','celeriac','fennel','beetroot*','beet*','pumpkin','squash','zucchini','eggplant','aubergine','capsicum*','mushroom*','cauliflower','broccoli*','broccolini','asparagus','pea','peas','bean*','kale','spinach','cabbage','tomato*','cucumber*','radish*','corn','garlic','lettuce','greens','cos','witlof','witlof','artichoke*','parsnip*','turnip*','kohlrabi','silverbeet','chard','okra','salad','warrigal','karkalla','samphire','sea blite','blite','saltbush','davidson','finger lime','bunya','yam daisy','compressed apple','apple dice','shimeji','enoki','king brown']},
+   words:['veg','vege','vegetable*','carrot*','dutch carrot*','baby carrot*','onion*','shallot*','eschalot*','leek*','celery','celeriac','fennel','beetroot*','beet*','pumpkin','squash','zucchini','eggplant','aubergine','capsicum*','mushroom*','cauliflower','broccoli*','broccolini','asparagus','pea','peas','bean*','kale','spinach','cabbage','tomato*','cucumber*','radish*','corn','garlic','lettuce','greens','cos','witlof','endive','artichoke*','parsnip*','turnip*','kohlrabi','silverbeet','chard','okra','salad','warrigal','karkalla','samphire','sea blite','seablight','blite','iceplant','saltbush','davidson','finger lime','bunya','yam daisy','compressed apple','apple dice','apple','shimeji','enoki','king brown','gem lettuce','baby gem','pencil leek','sweet potato','potato']},
   {key:'vegraw',  label:'Vegetables (raw / trim)', lead:4, batchWindow:4, weekendShift:true, family:'veg',
    legend:[], words:[]},
   {key:'vegcook', label:'Vegetables (cooked)',     lead:3, batchWindow:3, weekendShift:true, family:'veg',
@@ -71,9 +83,109 @@ window.PREP_DAYS_VOCAB = [
    words:[]}
 ];
 
-/* 4.8.12 — Gerard: veg raw (collect/trim) ≤4 days; cooked ≤3. Batch only within same stage.
- * Returns { key:'vegraw'|'vegcook', stage:'raw'|'cooked', clear:boolean, reason:string }.
- * Unclear → vegcook (shorter, safer).
+/* 4.8.25 — Gerard named soft (2) / hard (4) veg lists. Specificity before generics.
+ * Returns { key, lead, stage, clear, reason, covered:true } or null if not on either list.
+ * Callers fall back to classifyVegPrepStage (vegraw/vegcook) for unlisted veg.
+ */
+window.classifyGerardVeg = function classifyGerardVeg(taskText) {
+  var raw = String(taskText == null ? '' : taskText);
+  var t = raw.toLowerCase()
+    .replace(/[ée]/g, function (m) { return m === 'é' ? 'e' : m; })
+    .replace(/[’']/g, "'");
+  var parts = t.split(/\s*\/\s*/);
+  var head = (parts[0] || '').trim();
+  var method = parts.slice(1).join(' / ');
+  var all = t;
+
+  function hit(re) { return re.test(head) || re.test(all); }
+  function soft(reason) {
+    return { key: 'vegsoft', lead: 2, stage: 'soft', clear: true, reason: reason, covered: true };
+  }
+  function hard(reason) {
+    return { key: 'veghard', lead: 4, stage: 'hard', clear: true, reason: reason, covered: true };
+  }
+
+  /* --- Specificity first (soft vs hard for same produce) --- */
+  /* sauteed warrigal = soft 2; picked warrigal = hard 4; bare warrigal → not covered */
+  if (/\b(saute|sauteed|sauted|sauteeing|sauté(?:ed)?)\b/.test(all) && /\bwarrigal\b/.test(all)) {
+    return soft('sauteed warrigal → soft 2');
+  }
+  if (/\b(pick|picked|picking)\b/.test(all) && /\bwarrigal\b/.test(all)) {
+    return hard('picked warrigal → hard 4');
+  }
+  /* shaved fennel = soft 2; roasted / sous vide fennel = hard 4; bare fennel → not covered */
+  if (/\b(shave|shaved|shaving)\b/.test(all) && /\bfennel\b/.test(all) && !/\bfennel\s+seed/.test(all)) {
+    return soft('shaved fennel → soft 2');
+  }
+  if (/\b(roast|roasted|roasting)\b/.test(all) && /\bfennel\b/.test(all) && !/\bfennel\s+seed/.test(all)) {
+    return hard('roasted fennel → hard 4');
+  }
+  if (/\bsous[\s-]?vide\b/.test(all) && /\bfennel\b/.test(all)) {
+    return hard('sous vide fennel → hard 4');
+  }
+
+  /* --- Soft list (2 days) --- */
+  if (/\bzucchini\s+flowers?\b|\bzucchini\s+blossoms?\b|\bcourgette\s+flowers?\b/.test(all)) {
+    return soft('zucchini flower → soft 2');
+  }
+  if (/\bceleriac\b/.test(all) && /\bremoulade\b/.test(all)) {
+    return soft('celeriac remoulade → soft 2');
+  }
+  if (/\b(zucchini|courgette|cougrette)\b/.test(all) && !/\boil\b/.test(head)) {
+    return soft('zucchini → soft 2');
+  }
+  if (/\bradish(?:es)?\b/.test(head) || /\bradish(?:es)?\b/.test(all)) {
+    return soft('radish → soft 2');
+  }
+  /* apple (not pineapple); compressed apple / apple dice / apple & … */
+  if (/\bpineapple\b/.test(all)) { /* skip */ }
+  else if (/\b(compressed\s+)?apples?\b/.test(head) || /\bapple\s+dice\b/.test(all) || /\bapples?\b/.test(head)) {
+    return soft('apple → soft 2');
+  }
+
+  /* --- Hard list (4 days) --- */
+  if (/\bpickled\s+(veg(?:etable)?s?|onion|onion|carrot|beet|cucumber|radish|veg)\b/.test(all) ||
+      (/\b(pickle|pickled)\b/.test(all) && /\b(vegetable|veges|veg)\b/.test(all))) {
+    return hard('pickled vegetables → hard 4');
+  }
+  if (/\b(dutch\s+)?carrots?\b|\bbaby\s+carrots?\b/.test(all)) return hard('carrots → hard 4');
+  if (/\b(onion|onions|shallot|shallots|eschalot|eschalots|eschallot|eschallots)\b/.test(head) ||
+      (/\b(onion|onions|shallot|shallots|eschalot|eschallot)\b/.test(all) && !/\bpickled\s+esch/.test(all) && !/\boil\b/.test(head))) {
+    /* pickled eschallots in a soft dish garnish may still hit — Gerard listed onions as hard */
+    if (/\b(onion|onions|shallot|shallots|eschalot|eschalots|eschallot|eschallots)\b/.test(all)) {
+      return hard('onions → hard 4');
+    }
+  }
+  if (/\bbeetroots?\b|\bbeets?\b/.test(all)) return hard('beetroot → hard 4');
+  if (/\bpumpkin\b|\bbutternut\b/.test(all)) return hard('pumpkin → hard 4');
+  if (/\bsweet\s+potatos?\b|\bsweet\s+potatoes\b|\bkumara\b/.test(all)) return hard('sweet potato → hard 4');
+  if (/\bparsnips?\b/.test(all)) return hard('parsnip → hard 4');
+  if (!/\bsweet\s+potato/.test(all) && /\b(potatos?|potatoes|pomme)\b/.test(all)) {
+    return hard('potato → hard 4');
+  }
+  if (/\bpencil\s+leeks?\b/.test(all)) return hard('pencil leek → hard 4');
+  if (/\bleeks?\b/.test(all)) return hard('leeks → hard 4');
+  if (/\bturnips?\b/.test(all)) return hard('turnips → hard 4');
+  if (/\b(baby\s+)?gem(\s+lettuce)?\b|\bgem\s+leaf\b|\bgem\s+leaves\b/.test(all)) return hard('gem lettuce → hard 4');
+  if (/\bwitlofs?\b|\bwhitlofs?\b|\bwitloofs?\b|\bendives?\b/.test(all)) return hard('witlof → hard 4');
+  if (/\bpicked\s+leaves\b|\bpick\s+leaves\b|\bpicked\s+leaf\b/.test(all)) return hard('picked leaves → hard 4');
+  if (/\bgarlic\s+flowers?\b/.test(all)) return hard('garlic flowers → hard 4');
+  if (/\bedible\s+flowers?\b/.test(all)) return hard('edible flowers → hard 4');
+  if (/\bflowers?\b/.test(head) && !/\bzucchini\s+flower|\boil\b|\bflour\b/.test(all)) {
+    return hard('flowers → hard 4');
+  }
+  if (/\bice\s*plants?\b|\biceplant\b/.test(all)) return hard('iceplant → hard 4');
+  if (/\bsamphires?\b/.test(all)) return hard('samphire → hard 4');
+  if (/\bkarkallas?\b/.test(all)) return hard('karkalla → hard 4');
+  if (/\bsea[\s-]?blights?\b|\bseablights?\b|\bsea\s+blites?\b|\bblites?\b/.test(all)) {
+    return hard('seablight → hard 4');
+  }
+
+  return null;
+};
+
+/* 4.8.12 fallback — Gerard: veg raw (collect/trim) ≤4; cooked ≤3. Used when classifyGerardVeg returns null.
+ * Returns { key:'vegraw'|'vegcook', stage, clear, reason, covered:false }.
  */
 window.classifyVegPrepStage = function classifyVegPrepStage(taskText) {
   var raw = String(taskText == null ? '' : taskText);
@@ -85,17 +197,26 @@ window.classifyVegPrepStage = function classifyVegPrepStage(taskText) {
 
   var RAW_RE = /\b(collect|collection|pick|picked|picking|trim|trimmed|trimming|wash|washed|washing|peel|peeled|peeling|cut|cutting|slice|sliced|slicing|dice|diced|dicing|shave|shaved|shaving|portion|portioned|decant|shred|shredded|drain|drained|bag(?:ged)?|tray(?:ed)?)\b/;
   var COOK_RE = /\b(roast|roasted|roasting|blanch|blanched|blanching|cook|cooked|cooking|puree|pureed|purees|confit|grill|grilled|grilling|saute|sauteed|sauted|fry|fried|frying|oven|bake|baked|baking|steam|steamed|steaming|boil|boiled|boiling|braise|braised|char|charred|sear|seared|poach|poached|sous[\s-]?vide|compress(?:ed)?|fermen(?:t|ted)|pickle(?:d)?|cure(?:d)?|smoke(?:d)?|glaze(?:d)?|caramelis(?:e|ed)|carameliz(?:e|ed)|reduce(?:d)?|reduction|ragu|remoulade|marinade|marinate(?:d)?)\b/;
-  /* "rub" only as a method step, not "no rub" / "eggplant no rub" */
   var RUB_RE = /(^|\/)\s*rub\b/;
 
   var hasCook = COOK_RE.test(body) || COOK_RE.test(head) || RUB_RE.test(body);
   var hasRaw = RAW_RE.test(body);
 
   if (hasCook) {
-    return { key: 'vegcook', stage: 'cooked', clear: true, reason: 'cook-stage keyword' };
+    return { key: 'vegcook', stage: 'cooked', clear: true, reason: 'cook-stage keyword', covered: false };
   }
   if (hasRaw && method) {
-    return { key: 'vegraw', stage: 'raw', clear: true, reason: 'raw-stage keyword only' };
+    return { key: 'vegraw', stage: 'raw', clear: true, reason: 'raw-stage keyword only', covered: false };
   }
-  return { key: 'vegcook', stage: 'cooked', clear: false, reason: 'unclear — default cooked (shorter)' };
+  return { key: 'vegcook', stage: 'cooked', clear: false, reason: 'unclear — default cooked (shorter)', covered: false };
 };
+
+/** 4.8.25: Gerard list first, else raw/cook fallback. */
+window.classifyVegLead = function classifyVegLead(taskText) {
+  if (typeof window.classifyGerardVeg === 'function') {
+    var g = window.classifyGerardVeg(taskText);
+    if (g) return g;
+  }
+  return window.classifyVegPrepStage(taskText);
+};
+

@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.24-trial">
+<meta name="prepline-version" content="4.8.25-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -105,6 +105,7 @@ var LICENSE_CONFIG = {
 <script src="upgrades-4822.js"></script>
 <script src="upgrades-4823.js"></script>
 <script src="upgrades-4824.js"></script>
+<script src="upgrades-4825.js"></script>
 <!-- Full editors: Univer (Apache-2.0, self-hosted) + LuckyExcel + pdf-lib. Loaded on demand from sheet-builder.js / pdf-editor.js. -->
 <script src="sheet-builder.js"></script>
 <script src="pdf-editor.js"></script>
@@ -944,7 +945,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.24</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.25</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -955,7 +956,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
     clear browsing data.
     Sorting is keyword-based and won't be perfect — use the section dropdown on any row to move it.
     Prep stage for 4-day proteins: day 4 collect&amp;trim, day 3 sear/cool, day 2 re-tray/roast, event day box off.
-    Fish &amp; seafood: 2 days (collect/trim then process/tray). Prawns: 1 day before (ordered day-before for freshness; not early-batched). Other proteins 4 days. Crab croquettes: 4 days. Veg: raw ≤4, cooked ≤3. Stages from task wording;
+    Fish &amp; seafood: 2 days (collect/trim then process/tray). Prawns: 1 day before (ordered day-before for freshness; not early-batched). Other proteins 4 days. Crab croquettes: 4 days. Soft veg: 2 days (zucchini, radish, sauteed warrigal, shaved fennel, celeriac remoulade, apple). Hard veg: 4 days (carrots, onions, beetroot, pumpkin, potato/sweet potato, leeks, turnips, roasted/sous-vide fennel, gem/witlof, picked leaves/flowers, iceplant, samphire, karkalla, seablight, picked warrigal, pickled veg). Micro herbs: 1 day (not early-batched). Other veg: raw ≤4 / cooked ≤3 fallback;
     then mapped onto real weekdays — in Recipe database mode, working backward from the event date you enter
     each week (a Saturday event runs Wed/Thu/Fri/Sat prep); in One-time sort mode, from a weekday named in the
     dish's tab (e.g. "Mains Beef Fillet Saturday") or set manually per dish. The "By prep day" view groups every
@@ -2269,26 +2270,40 @@ function prepInfoFor(text, legendPrep, section, dishCtx){
   let info = c
     ? {prepCat: c.key, leadDays: c.lead, prepSrc: src, weekendShift: !!c.weekendShift}
     : {prepCat: '', leadDays: null, prepSrc: '', weekendShift: false};
-  /* 4.8.12: refine Vegetables → vegraw (≤4) or vegcook (≤3). Unclear → vegcook. */
+  /* 4.8.25: Gerard soft(2)/hard(4) named lists first; else vegraw≤4 / vegcook≤3 fallback.
+   * Also reclassify garnish hits that match hard list (karkalla, samphire, flowers, …). */
   try{
-    const isVegFamily = info.prepCat === 'veg' || info.prepCat === 'vegraw' || info.prepCat === 'vegcook'
-      || (c && c.family === 'veg')
-      || section === 'Vegetables';
-    if (isVegFamily && typeof window.classifyVegPrepStage === 'function'){
-      /* Only stage-split when this line is actually veg (not a puree/oil mis-hit already classified). */
-      const alreadyNonVeg = info.prepCat && !/^veg/.test(info.prepCat);
-      if (!alreadyNonVeg){
-        const st = window.classifyVegPrepStage(text);
-        const vc = prepCatByKey(st.key) || { key: st.key, lead: st.key === 'vegraw' ? 4 : 3, weekendShift: true };
-        info.prepCat = vc.key;
-        info.leadDays = vc.lead;
-        info.weekendShift = !!vc.weekendShift;
-        info.vegStage = st.stage;
-        info.vegStageClear = !!st.clear;
-        info.vegStageReason = st.reason || '';
-        if (!st.clear) info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'veg-default-cook';
-        else if (info.prepSrc === 'legend' || info.prepSrc === 'section' || info.prepSrc === 'keyword')
-          info.prepSrc = info.prepSrc + '+veg-' + st.stage;
+    const gerard = (typeof window.classifyGerardVeg === 'function') ? window.classifyGerardVeg(text) : null;
+    if (gerard && gerard.covered){
+      const vc = prepCatByKey(gerard.key) || { key: gerard.key, lead: gerard.lead, weekendShift: true };
+      info.prepCat = vc.key;
+      info.leadDays = Number.isFinite(gerard.lead) ? gerard.lead : vc.lead;
+      info.weekendShift = !!vc.weekendShift;
+      info.vegStage = gerard.stage;
+      info.vegStageClear = true;
+      info.vegStageReason = gerard.reason || '';
+      info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'gerard-' + gerard.stage;
+    } else {
+      const isVegFamily = info.prepCat === 'veg' || info.prepCat === 'vegraw' || info.prepCat === 'vegcook'
+        || info.prepCat === 'vegsoft' || info.prepCat === 'veghard'
+        || (c && c.family === 'veg')
+        || section === 'Vegetables';
+      if (isVegFamily && typeof window.classifyVegPrepStage === 'function'){
+        const alreadyNonVeg = info.prepCat && !/^veg/.test(info.prepCat);
+        if (!alreadyNonVeg){
+          const st = window.classifyVegPrepStage(text);
+          const leadMap = { vegraw: 4, vegcook: 3, vegsoft: 2, veghard: 4 };
+          const vc = prepCatByKey(st.key) || { key: st.key, lead: leadMap[st.key] != null ? leadMap[st.key] : 3, weekendShift: true };
+          info.prepCat = vc.key;
+          info.leadDays = vc.lead;
+          info.weekendShift = !!vc.weekendShift;
+          info.vegStage = st.stage;
+          info.vegStageClear = !!st.clear;
+          info.vegStageReason = st.reason || '';
+          if (!st.clear) info.prepSrc = (info.prepSrc ? info.prepSrc + '+' : '') + 'veg-default-cook';
+          else if (info.prepSrc === 'legend' || info.prepSrc === 'section' || info.prepSrc === 'keyword')
+            info.prepSrc = info.prepSrc + '+veg-' + st.stage;
+        }
       }
     }
   }catch(e){}
@@ -2441,7 +2456,7 @@ function eventDaySelect(encodedDish, current){
 // Day 2 keywords → stageNum 2 → event−2 (= day 3 before): sear / cool down
 // Day 3 keywords → stageNum 3 → event−1 (= day 2 before): re-tray or roast
 // Day 4 keywords → stageNum 4 → event day: box off
-// Seafood/fish lead=2 (4.8.13). Prawns lead=1 non-batchable (4.8.24). Veg uses vegraw/vegcook.
+// Seafood/fish lead=2. Prawns lead=1. Veg 4.8.25: soft=2 / hard=4 named lists; else vegraw/vegcook. Micro=1.
 const DAY1_KW = ['collect','trim','wash','count','top up order','topup order','top-up order','order top up','order',
   'peel','devein','de-vein','unpack','receive delivery','receiving','stocktake','par level','tally','defrost',
   'thaw','pat dry','squeeze','drain'];
