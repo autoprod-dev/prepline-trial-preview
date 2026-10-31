@@ -1,4 +1,4 @@
-/* Prepline 4.8.10 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping + section toggles + sheet state.
+/* Prepline 4.8.11 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -107,18 +107,32 @@
       blockedDays: helpers.blockedDays || new Set()
     };
 
-    /* Ensure poultry chicken lines are batchable with 4-day window when prepCat missing. */
+    /* Ensure food-type + lead when prepCat missing (Paula 4.3.5 / Gerard: poultry 4, fish 1). */
     list.forEach(function (r) {
       if (!r) return;
       if (!r.prepCat) {
         var t = String(r.task || r.item || '').toLowerCase();
-        if (/\bchicken\b|\bspatch\b|\bpoultry\b|\bduck\b|\bturkey\b/.test(t)) {
-          r.prepCat = /duck|turkey/.test(t) && !/chicken/.test(t) ? 'poultry' : 'poultry';
+        if (/\bchicken\b|\bspatch\b|\bpoultry\b|\bduck\b|\bturkey\b|\bquail\b/.test(t)) {
+          r.prepCat = 'poultry';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
-        } else if (/\bsalmon\b|\bfish\b|\bcod\b|\btrout\b|\bbarramundi\b|\bprawn\b|\bscallop\b/.test(t)) {
+        } else if (/\bsalmon\b|\bfish\b|\bcod\b|\btrout\b|\bbarramundi\b|\bprawn\b|\bscallop\b|\btuna\b|\bseafood\b/.test(t)) {
           r.prepCat = 'seafood';
           if (!Number.isFinite(r.leadDays)) r.leadDays = 1;
+        } else if (/\bbeef\b|\blamb\b|\bpork\b|\bveal\b|\bwagyu\b|\bbrisket\b/.test(t)) {
+          r.prepCat = 'redmeat';
+          if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
+        } else if (/\bbutter\b|\bcheese\b|\bcream\b|\bparmesan\b|\bricotta\b|\bfeta\b/.test(t)) {
+          r.prepCat = 'dairy';
+          if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
+        } else if (/\bdressing\b|\bvinaigrette\b|\baioli\b|\bmayo\b/.test(t)) {
+          r.prepCat = 'dressing';
+          if (!Number.isFinite(r.leadDays)) r.leadDays = 4;
         }
+      }
+      /* Never let leadDays exceed the food-type window (and vice versa floor for seafood). */
+      if (r.prepCat && root.PreplineBatch && typeof root.PreplineBatch.batchWindowFor === 'function') {
+        var w = root.PreplineBatch.batchWindowFor(r.prepCat, r.leadDays);
+        if (Number.isFinite(r.leadDays) && Number.isFinite(w) && r.leadDays > w) r.leadDays = w;
       }
     });
 
@@ -343,7 +357,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.10',
+    VERSION: '4.8.11',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,
