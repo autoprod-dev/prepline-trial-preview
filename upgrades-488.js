@@ -1,4 +1,4 @@
-/* Prepline 4.8.18 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
+/* Prepline 4.8.19 (base 4.8.8 APIs) — trial: smart-chef prep-day grouping; food-type lead clamp (4.8.11).
  * Autoprod. TRIAL ONLY for smart chef — do NOT port smart chef / pastel / Autofilter to Paula.
  *
  * Smart chef reuses PreplineBatch (29 Oct) greedy rules:
@@ -59,7 +59,7 @@
     var col = (st && st.sortCol) || 'actualPrep';
     var dir = (st && st.sortDir) === 'desc' ? -1 : 1;
     list.sort(function (a, b) {
-      /* 4.8.18 Gerard Sheets: Col H Prep day A–Z (label text e.g. "1 Monday"),
+      /* 4.8.19 Gerard Sheets: Col H Prep day A–Z (label text e.g. "1 Monday"),
          then Col A Item A–Z, then Col I Source tab A–Z.
          Matches Google Sheets sort — NOT calendar actualPrep (which puts
          previous-week "5 Friday" before "1 Monday"). */
@@ -224,7 +224,7 @@
 
   /* Default organised sort: Prep day label A–Z → Item A–Z → Source A–Z (Sheets H→A→I) */
   function smartChefSort(a, b) {
-    /* 4.8.18 Gerard Sheets dialog: Column H A–Z, then A A–Z, then I A–Z.
+    /* 4.8.19 Gerard Sheets dialog: Column H A–Z, then A A–Z, then I A–Z.
        Use prep day LABEL ("1 Monday"), not calendar actualPrep. */
     var pa = String(a.prepDay || '').toLowerCase();
     var pb = String(b.prepDay || '').toLowerCase();
@@ -387,7 +387,7 @@
   ];
 
   root.Prepline488 = {
-    VERSION: '4.8.18',
+    VERSION: '4.8.19',
     smartPrepDayMap: smartPrepDayMap,
     smartPrepDayForRow: smartPrepDayForRow,
     smartChefSort: smartChefSort,

@@ -1,4 +1,4 @@
-/* Prepline 4.7.7 (+… +4.8.18 Sheets H→A→I sort; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.19 same-item batch staff times; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
  * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
  * Prep day | Source tab | STAFF ALLOCATED (est.). Print titles repeat WE+section+header every page.
@@ -6,6 +6,8 @@
  * Paula blank when helpers.staffEstimates === false.
  * 4.8.18: every yellow-header path sorts data rows (from row 4) by Prep day label A–Z,
  * then Item A–Z, then Source tab A–Z (Gerard Sheets H→A→I). AutoFilter from row 3.
+ * 4.8.19: same base item + same prep day = one batch staff time (economies of scale);
+ * first row shows group hours·chefs (N lines); followers "↑ grouped"; subtotals sum groups.
  */
 (function (root) {
   'use strict';
@@ -221,12 +223,18 @@
 
   /* ---- 4.8.17 STAFF ALLOCATED (est.) — calibrated to Gerard Sauce photo ---- */
   var CHEF_SHIFT_HOURS = 7.5;
-  var TIME_LADDER_MIN = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360];
+  var TIME_LADDER_MIN = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360, 390, 420, 450, 480];
 
   function snapToLadder(mins) {
     if (!Number.isFinite(mins) || mins <= 0) return 10;
     var L = TIME_LADDER_MIN;
-    if (mins > L[L.length - 1]) return Math.ceil(mins / 30) * 30;
+    var last = L[L.length - 1];
+    if (mins > last) {
+      var stepped = Math.ceil(mins / 30) * 30;
+      /* Prefer last ladder rung when closer than the next 30-min step */
+      if (Math.abs(mins - last) <= Math.abs(mins - stepped)) return last;
+      return stepped;
+    }
     var best = L[0], bd = Math.abs(mins - L[0]);
     for (var i = 1; i < L.length; i++) {
       var d = Math.abs(mins - L[i]);
@@ -302,6 +310,111 @@
     var kg = totalNeededKg(r, helpers);
     var raw = profile.base + profile.perKg * kg;
     return snapToLadder(raw);
+  }
+
+  /**
+   * 4.8.19: same base item + same prep day = ONE cook job (then pack out).
+   * Combined qty with strong economies of scale (fixed setup + √kg), ladder-snapped.
+   * Calibrated: ~46kg ragu → ~6h; ~15kg gel → ~5h (Gerard WE22 Sauce photo).
+   */
+  function estimateBatchStaffMinutes(profile, kg) {
+    if (!profile) profile = { base: 30, perKg: 10 };
+    var k = Number(kg) || 0;
+    if (k < 0) k = 0;
+    var raw = profile.base * 1.2 + profile.perKg * 1.5 * Math.sqrt(k);
+    /* Cap a single batch at 8h unless truly huge (>80kg) */
+    var cap = k > 80 ? 600 : 480;
+    if (raw > cap) raw = cap;
+    return snapToLadder(raw);
+  }
+
+  /** Normalise item head + method so "Yuzu Gel (VG) / Boil…" ≡ "Yuzu Gel / Boil…".
+   *  Dietary tags stripped from head; method kept (so different methods stay separate).
+   *  "Mushroom Ragu / Slice/Cook/Tray" ≠ "Mushroom Ragu Sauce (VEGAN) / Tray". */
+  function staffBatchKey(item) {
+    var s = String(item == null ? '' : item);
+    var parts = s.split(/\s*\/\s*/);
+    var head = (parts[0] || s).toLowerCase();
+    head = head.replace(/\s*\((?:vg|vegan|ve|gf|df|nf|v|pb|plant[\s-]?based)\)\s*/gi, ' ');
+    head = head.replace(/\s+/g, ' ').trim();
+    var method = parts.slice(1).join(' / ').toLowerCase();
+    method = method.replace(/\([^)]*per[^)]*\)/gi, '');
+    method = method.replace(/\s+/g, ' ').trim();
+    return head + '|' + method;
+  }
+
+  /** Chefs for one batch job: 1 if ≤4h, 2 if ≤10h, else ceil(h/7.5) capped at 4. */
+  function chefsForGroupMinutes(mins) {
+    var hrs = (Number(mins) || 0) / 60;
+    if (hrs <= 0) return 0;
+    if (hrs <= 4) return 1;
+    if (hrs <= 10) return 2;
+    return Math.min(4, Math.ceil(hrs / CHEF_SHIFT_HOURS));
+  }
+
+  function formatGroupStaffLabel(mins, lineCount) {
+    var hrs = mins / 60;
+    var hrsLabel;
+    if (mins < 60) hrsLabel = mins + ' minutes';
+    else if (mins === 60) hrsLabel = '1 hour';
+    else if (mins % 60 === 0) hrsLabel = (mins / 60) + ' hours';
+    else if (mins % 60 === 30) hrsLabel = (mins / 60) + ' hours';
+    else hrsLabel = (Math.round(hrs * 10) / 10) + ' hours';
+    var chefs = chefsForGroupMinutes(mins);
+    var n = lineCount || 1;
+    return hrsLabel + ' · ' + chefs + ' chef' + (chefs === 1 ? '' : 's') +
+      ' (' + n + ' line' + (n === 1 ? '' : 's') + ')';
+  }
+
+  /**
+   * After H→A→I sort: consecutive rows with same prep day + staffBatchKey = one job.
+   * First row shows group time; followers "↑ grouped" with staffMinutes=0 so subtotals
+   * sum groups not lines. Singles keep per-line estimate (14/14 calib).
+   */
+  function applyStaffBatchGrouping(rows, helpers) {
+    if (helpers && helpers.staffEstimates === false) return rows;
+    var list = Array.isArray(rows) ? rows : [];
+    var i = 0;
+    while (i < list.length) {
+      var prep = String(list[i].prepDay || '');
+      var key = staffBatchKey(list[i].item || list[i].task || '');
+      var j = i + 1;
+      while (j < list.length &&
+             String(list[j].prepDay || '') === prep &&
+             staffBatchKey(list[j].item || list[j].task || '') === key) {
+        j++;
+      }
+      var n = j - i;
+      if (n === 1) {
+        /* ungrouped — leave per-line estimate already set */
+        list[i].staffGrouped = false;
+        list[i].staffGroupSize = 1;
+        i = j;
+        continue;
+      }
+      var kg = 0;
+      var profile = pickDurationProfile(list[i].item || list[i].task || '');
+      for (var k = i; k < j; k++) {
+        kg += totalNeededKg(list[k], helpers);
+        /* prefer richer profile if a later line has more method detail */
+        var pk = pickDurationProfile(list[k].item || list[k].task || '');
+        if (pk && pk.perKg > profile.perKg) profile = pk;
+      }
+      var mins = estimateBatchStaffMinutes(profile, kg);
+      list[i].staffMinutes = mins;
+      list[i].staff = formatGroupStaffLabel(mins, n);
+      list[i].staffGrouped = true;
+      list[i].staffGroupSize = n;
+      list[i].staffGroupKg = kg;
+      for (var m = i + 1; m < j; m++) {
+        list[m].staffMinutes = 0;
+        list[m].staff = '↑ grouped';
+        list[m].staffGrouped = true;
+        list[m].staffGroupSize = n;
+      }
+      i = j;
+    }
+    return list;
   }
 
   function staffAllocated(r, helpers) {
@@ -629,6 +742,8 @@
         return 0;
       });
     }
+    /* 4.8.19: same-item same-prep-day → one batch time (after sort so groups are consecutive) */
+    applyStaffBatchGrouping(out, helpers);
     return out;
   }
 
@@ -740,6 +855,11 @@
         row.getCell(9).value = r.sourceTab || '';
         row.getCell(10).value = r.staff || '';
         for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
+        if (r.staff === '↑ grouped') {
+          row.getCell(10).font = { name: 'Calibri', size: 11, italic: true, color: { argb: 'FF666666' } };
+        } else if (r.staffGrouped && r.staffGroupSize > 1 && r.staffMinutes > 0) {
+          row.getCell(10).font = { name: 'Calibri', size: 12, bold: true };
+        }
         if (!colourMap) colourMap = {};
         var pastel = pastelForGroup(gid0, colourMap);
         row.getCell(8).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pastel } };
@@ -1001,13 +1121,18 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.18',
+    VERSION: '4.8.19',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
     actualPrepSortKey: actualPrepSortKey,
     renameDfPrefix: renameDfPrefix,
     estimateStaffMinutes: estimateStaffMinutes,
+    estimateBatchStaffMinutes: estimateBatchStaffMinutes,
+    staffBatchKey: staffBatchKey,
+    applyStaffBatchGrouping: applyStaffBatchGrouping,
+    formatGroupStaffLabel: formatGroupStaffLabel,
+    chefsForGroupMinutes: chefsForGroupMinutes,
     formatStaffDuration: formatStaffDuration,
     formatPrepDaySubtotal: formatPrepDaySubtotal,
     CHEF_SHIFT_HOURS: CHEF_SHIFT_HOURS,
