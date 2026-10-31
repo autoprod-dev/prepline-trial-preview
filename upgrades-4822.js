@@ -1,4 +1,4 @@
-/* Prepline 4.8.22 — trial only.
+/* Prepline 4.8.23 — trial only.
  * A) Ref# PO window 0–3 days + multi-delivery "Supplier DD/MM/YYYY; …" (core in index.html).
  * B) Every collapsible settings bar toggles both ways: Show ↔ Hide.
  *    Root cause: u480 CSS hid .u480-settings-bar once expanded, so Pax (2) /
@@ -8,7 +8,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '4.8.22';
+  var VERSION = '4.8.23';
   var CSS_ID = 'u4822-css';
 
   function bustPoCache() {

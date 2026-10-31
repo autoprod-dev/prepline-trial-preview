@@ -1,4 +1,4 @@
-/* Prepline 4.8.22 — UI cleanup (trial only).
+/* Prepline 4.8.23 — UI cleanup (trial only).
  * 1) Remove the progress / tick-off feature from the UI entirely.
  * 2) Keep A3 prep calendar one-page print (no layout regression).
  * 3) Sections 4–9 behind collapsible Show/Hide toggles in the same
@@ -10,7 +10,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '4.8.22';
+  var VERSION = '4.8.23';
   var CSS_ID = 'u4821-css';
   var openState = Object.create(null);
 

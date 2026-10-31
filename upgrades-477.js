@@ -1,13 +1,11 @@
-/* Prepline 4.7.7 (+… +4.8.19 same-item batch staff times; 4.8.20 A3 prep calendar; DONE tick removed) — Paula Sorted layout (trial). Autoprod.
+/* Prepline 4.7.7 (+… +4.8.23 dual staff cols + Final Roster) — Paula Sorted layout (trial). Autoprod.
  * One sheet per kitchen section; WEEK ENDING title; section title; yellow header; flat item rows.
- * Columns: Item | Quantity per pax | Unit | PAX | Total needed (plain qty×pax) | BAT/PO # | Section |
- * Prep day | Source tab | STAFF ALLOCATED (est.). Print titles repeat WE+section+header every page.
- * 4.8.17: duration estimates from Total needed + method; prep-day subtotals + chefs @ 7.5h.
- * Paula blank when helpers.staffEstimates === false.
- * 4.8.18: every yellow-header path sorts data rows (from row 4) by Prep day label A–Z,
- * then Item A–Z, then Source tab A–Z (Gerard Sheets H→A→I). AutoFilter from row 3.
- * 4.8.19: same base item + same prep day = one batch staff time (economies of scale);
- * first row shows group hours·chefs (N lines); followers "↑ grouped"; subtotals sum groups.
+ * Columns: Item | Quantity per pax | Unit | PAX | Total needed | BAT/PO # | Section |
+ * Prep day | Source tab | PREP DURATION (estimate only) | STAFF ALLOCATED (shifts @ 7.5h).
+ * Print titles repeat WE+section+header every page.
+ * 4.8.17–19: duration estimates; batch grouping; H→A→I sort; AutoFilter from row 3.
+ * 4.8.23: split STAFF ALLOCATED (est.) → PREP DURATION + STAFF ALLOCATED (hours/7.5 shifts);
+ * subtotals: duration hours + chefs needed (ceil) with exact; Final Roster tab after Proteins.
  */
 (function (root) {
   'use strict';
@@ -32,12 +30,15 @@
 
   var HEADERS = [
     'Item', 'Quantity per pax', 'Unit', 'PAX ', 'Total needed',
-    'BAT/PO #', 'Section', 'Prep day', 'Source tab', 'STAFF ALLOCATED (est.)'
+    'BAT/PO #', 'Section', 'Prep day', 'Source tab',
+    'PREP DURATION (estimate only)', 'STAFF ALLOCATED'
   ];
 
-  /* 10 cols (DONE tick removed 4.8.17) — widths fit landscape print */
-  var COL_WIDTHS = [40.75, 16.75, 8.75, 14.75, 13.75, 12.75, 24.75, 12.75, 36.75, 30.75];
+  /* 11 cols (4.8.23 split staff) — widths fit landscape print */
+  var COL_WIDTHS = [38.75, 15.75, 8.75, 12.75, 12.75, 11.75, 22.75, 12.75, 32.75, 24.75, 16.75];
   var COL_COUNT = HEADERS.length;
+  var COL_PREP_DUR = 10; /* 1-based */
+  var COL_STAFF = 11;
   /* Rows: 1=WEEK ENDING, 2=section title, 3=yellow headers, 4+=data */
   var TITLE_WE_ROW = 1;
   var TITLE_SECTION_ROW = 2;
@@ -352,18 +353,46 @@
     return Math.min(4, Math.ceil(hrs / CHEF_SHIFT_HOURS));
   }
 
-  function formatGroupStaffLabel(mins, lineCount) {
-    var hrs = mins / 60;
-    var hrsLabel;
-    if (mins < 60) hrsLabel = mins + ' minutes';
-    else if (mins === 60) hrsLabel = '1 hour';
-    else if (mins % 60 === 0) hrsLabel = (mins / 60) + ' hours';
-    else if (mins % 60 === 30) hrsLabel = (mins / 60) + ' hours';
-    else hrsLabel = (Math.round(hrs * 10) / 10) + ' hours';
-    var chefs = chefsForGroupMinutes(mins);
+  function formatHoursLabel(mins) {
+    var m = Number(mins) || 0;
+    var hrs = m / 60;
+    if (m <= 0) return '';
+    if (m < 60) return m + ' minutes';
+    if (m === 60) return '1 hour';
+    if (m % 60 === 0) return (m / 60) + ' hours';
+    if (m % 60 === 30) return (m / 60) + ' hours';
+    return (Math.round(hrs * 10) / 10) + ' hours';
+  }
+
+  /** PREP DURATION cell: hours (+ N lines for batch groups). */
+  function formatPrepDurationLabel(mins, lineCount) {
+    var hrsLabel = formatHoursLabel(mins);
+    if (!hrsLabel) return '';
     var n = lineCount || 1;
-    return hrsLabel + ' · ' + chefs + ' chef' + (chefs === 1 ? '' : 's') +
-      ' (' + n + ' line' + (n === 1 ? '' : 's') + ')';
+    if (n > 1) return hrsLabel + ' (' + n + ' lines)';
+    return hrsLabel;
+  }
+
+  /** STAFF ALLOCATED cell: chef-shifts where 1 chef = 7.5h (e.g. 3.75h → 0.5). */
+  function shiftsForMinutes(mins) {
+    var hrs = (Number(mins) || 0) / 60;
+    if (hrs <= 0) return 0;
+    return Math.round((hrs / CHEF_SHIFT_HOURS) * 100) / 100;
+  }
+
+  function formatStaffShifts(mins) {
+    var s = shiftsForMinutes(mins);
+    if (s <= 0) return '';
+    return String(s);
+  }
+
+  /** Legacy combined label (kept for any UI that still reads .staff as one string). */
+  function formatGroupStaffLabel(mins, lineCount) {
+    var dur = formatPrepDurationLabel(mins, lineCount);
+    var sh = formatStaffShifts(mins);
+    if (!dur) return '';
+    if (!sh) return dur;
+    return dur + ' · ' + sh + ' shift' + (Number(sh) === 1 ? '' : 's');
   }
 
   /**
@@ -402,12 +431,16 @@
       }
       var mins = estimateBatchStaffMinutes(profile, kg);
       list[i].staffMinutes = mins;
-      list[i].staff = formatGroupStaffLabel(mins, n);
+      list[i].prepDuration = formatPrepDurationLabel(mins, n);
+      list[i].staffShifts = formatStaffShifts(mins);
+      list[i].staff = list[i].prepDuration;
       list[i].staffGrouped = true;
       list[i].staffGroupSize = n;
       list[i].staffGroupKg = kg;
       for (var m = i + 1; m < j; m++) {
         list[m].staffMinutes = 0;
+        list[m].prepDuration = '↑ grouped';
+        list[m].staffShifts = '';
         list[m].staff = '↑ grouped';
         list[m].staffGrouped = true;
         list[m].staffGroupSize = n;
@@ -430,11 +463,26 @@
     return Math.ceil((totalMins / 60) / CHEF_SHIFT_HOURS);
   }
 
+  function formatPrepDayDurationSubtotal(totalMins) {
+    var hrs = (Number(totalMins) || 0) / 60;
+    if (hrs <= 0) return '0 hours';
+    return (Math.round(hrs * 10) / 10) + ' hour' + (hrs === 1 ? '' : 's');
+  }
+
+  /** Subtotal STAFF ALLOCATED: chefs needed (ceil of hours/7.5) + exact shifts. */
+  function formatPrepDayStaffSubtotal(totalMins) {
+    var mins = Number(totalMins) || 0;
+    if (mins <= 0) return '0';
+    var exact = (mins / 60) / CHEF_SHIFT_HOURS;
+    var needed = Math.ceil(exact - 1e-12);
+    if (needed < 0) needed = 0;
+    var exactR = Math.round(exact * 100) / 100;
+    return needed + ' chef' + (needed === 1 ? '' : 's') + ' needed (exact ' + exactR + ')';
+  }
+
+  /** Legacy combined subtotal string. */
   function formatPrepDaySubtotal(totalMins) {
-    var hrs = totalMins / 60;
-    var hrsLabel = (Math.round(hrs * 10) / 10) + ' hour' + (hrs === 1 ? '' : 's');
-    var chefs = chefsForMinutes(totalMins);
-    return hrsLabel + ' · ' + chefs + ' chef' + (chefs === 1 ? '' : 's') + ' @ ' + CHEF_SHIFT_HOURS + 'h';
+    return formatPrepDayDurationSubtotal(totalMins) + ' · ' + formatPrepDayStaffSubtotal(totalMins);
   }
 
 
@@ -695,10 +743,14 @@
       /* Estimate from Total needed + method; Paula blank when staffEstimates === false */
       if (helpers && helpers.staffEstimates === false) {
         rowOut.staff = '';
+        rowOut.prepDuration = '';
+        rowOut.staffShifts = '';
         rowOut.staffMinutes = 0;
       } else {
         rowOut.staffMinutes = estimateStaffMinutes(rowOut, helpers);
-        rowOut.staff = formatStaffDuration(rowOut.staffMinutes);
+        rowOut.prepDuration = formatStaffDuration(rowOut.staffMinutes);
+        rowOut.staffShifts = formatStaffShifts(rowOut.staffMinutes);
+        rowOut.staff = rowOut.prepDuration;
       }
       out.push(rowOut);
     });
@@ -853,12 +905,14 @@
         row.getCell(7).value = r.section || '';
         row.getCell(8).value = r.prepDay || '';
         row.getCell(9).value = r.sourceTab || '';
-        row.getCell(10).value = r.staff || '';
+        row.getCell(COL_PREP_DUR).value = (r.prepDuration != null && r.prepDuration !== '') ? r.prepDuration : (r.staff || '');
+        row.getCell(COL_STAFF).value = (r.prepDuration === '↑ grouped') ? '' : (r.staffShifts != null ? r.staffShifts : '');
         for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c));
-        if (r.staff === '↑ grouped') {
-          row.getCell(10).font = { name: 'Calibri', size: 11, italic: true, color: { argb: 'FF666666' } };
+        if (r.prepDuration === '↑ grouped' || r.staff === '↑ grouped') {
+          row.getCell(COL_PREP_DUR).font = { name: 'Calibri', size: 11, italic: true, color: { argb: 'FF666666' } };
         } else if (r.staffGrouped && r.staffGroupSize > 1 && r.staffMinutes > 0) {
-          row.getCell(10).font = { name: 'Calibri', size: 12, bold: true };
+          row.getCell(COL_PREP_DUR).font = { name: 'Calibri', size: 12, bold: true };
+          row.getCell(COL_STAFF).font = { name: 'Calibri', size: 12, bold: true };
         }
         if (!colourMap) colourMap = {};
         var pastel = pastelForGroup(gid0, colourMap);
@@ -880,7 +934,8 @@
         var dayLab = rows[chunkStart].prepDay || '';
         sub.getCell(1).value = '— ' + dayLab + ' subtotal —';
         for (var sc = 2; sc <= 9; sc++) sub.getCell(sc).value = '';
-        sub.getCell(10).value = formatPrepDaySubtotal(chunkMins);
+        sub.getCell(COL_PREP_DUR).value = formatPrepDayDurationSubtotal(chunkMins);
+        sub.getCell(COL_STAFF).value = formatPrepDayStaffSubtotal(chunkMins);
         for (var sc2 = 1; sc2 <= lastCol; sc2++) {
           styleDataCell(sub.getCell(sc2));
           sub.getCell(sc2).font = { name: 'Calibri', size: 11, bold: true, italic: true };
@@ -956,16 +1011,19 @@
         var pax = xr.pax === '' ? '' : xr.pax;
         var tot = totalNeededCell(xr, xExcelRow);
         if (tot === '' || tot == null) tot = '';
+        var xDur = (xr.prepDuration != null && xr.prepDuration !== '') ? xr.prepDuration : (xr.staff || '');
+        var xSh = (xr.prepDuration === '↑ grouped') ? '' : (xr.staffShifts != null ? xr.staffShifts : '');
         aoa.push([
           xr.item, qty, xr.unit || '', pax, tot,
-          xr.batPo || '', xr.section || '', xr.prepDay || '', xr.sourceTab || '', xr.staff || ''
+          xr.batPo || '', xr.section || '', xr.prepDay || '', xr.sourceTab || '', xDur, xSh
         ]);
         xChunkMins += Number(xr.staffMinutes) || 0;
         xExcelRow++;
         xi++;
       }
       aoa.push([
-        '— ' + xDay + ' subtotal —', '', '', '', '', '', '', xDay, '', formatPrepDaySubtotal(xChunkMins)
+        '— ' + xDay + ' subtotal —', '', '', '', '', '', '', xDay, '',
+        formatPrepDayDurationSubtotal(xChunkMins), formatPrepDayStaffSubtotal(xChunkMins)
       ]);
       xExcelRow++;
     }
@@ -1010,6 +1068,246 @@
     /* SheetJS limited print titles — set where supported */
     if (!ws['!printHeader']) ws['!printHeader'] = [];
     ws['!margins'] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+    return ws;
+  }
+
+
+  /* ---- 4.8.23 Final Roster (after Proteins) ---- */
+  var FINAL_ROSTER_NAME = 'Final Roster';
+  var ROSTER_SHORT = {
+    'Sauce, Purees and Gels': 'Sauce',
+    'Vegetables': 'Vegetables',
+    'Garnishes, Herbs, Powders, Oils': 'Garnishes',
+    'Starch': 'Starch',
+    'Proteins': 'Proteins',
+    'Other': 'Other'
+  };
+
+  function parseWeekEndingSunday(weLabel) {
+    var m = String(weLabel || '').match(/(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})/);
+    if (!m) return null;
+    var dd = Number(m[1]), mm = Number(m[2]), yy = Number(m[3]);
+    if (yy < 100) yy += 2000;
+    var d = new Date(yy, mm - 1, dd);
+    if (d.getFullYear() !== yy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
+    /* Paula: week ending is Sunday */
+    return sundayOnOrAfter(d);
+  }
+
+  function weekdayNameFromPrepLabel(lab) {
+    var s = String(lab || '');
+    for (var i = 0; i < WEEKDAYS.length; i++) {
+      if (new RegExp('\\b' + WEEKDAYS[i] + '\\b', 'i').test(s)) return WEEKDAYS[i];
+    }
+    return null;
+  }
+
+  /** e.g. week ending Sun 15/11/26 → Mon 09/11/26 */
+  function dateForPrepWeekday(weekdayName, weSunday) {
+    if (!weSunday || !weekdayName) return null;
+    var idx = WEEKDAYS.indexOf(weekdayName);
+    if (idx < 0) return null;
+    /* Monday=0 → Sunday-6; Sunday=6 → Sunday-0 */
+    var offset = idx - 6;
+    return new Date(weSunday.getFullYear(), weSunday.getMonth(), weSunday.getDate() + offset);
+  }
+
+  function formatRosterDayLabel(weekdayName, weSunday) {
+    var d = dateForPrepWeekday(weekdayName, weSunday);
+    if (!d) return weekdayName || '';
+    var short = weekdayName.slice(0, 3);
+    return short + ' ' + pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2);
+  }
+
+  function hoursFromMins(mins) {
+    return Math.round(((Number(mins) || 0) / 60) * 10) / 10;
+  }
+
+  /**
+   * Aggregate paula rows → { daysOrdered: [{weekday, label, bySheet: {sheet: mins}, dayMins}], weekMins }
+   * Only days that appear in data, Mon→Sun order.
+   */
+  function buildRosterModel(paulaRows, weLabel) {
+    var weSun = parseWeekEndingSunday(weLabel);
+    var byDay = {}; /* weekday → { sheet → mins } */
+    (paulaRows || []).forEach(function (r) {
+      var wd = weekdayNameFromPrepLabel(r.prepDay);
+      if (!wd) return;
+      var sheet = r.sheet || sheetForSection(r.section) || OTHER_SHEET;
+      if (!byDay[wd]) byDay[wd] = {};
+      byDay[wd][sheet] = (byDay[wd][sheet] || 0) + (Number(r.staffMinutes) || 0);
+    });
+    var daysOrdered = [];
+    WEEKDAYS.forEach(function (wd) {
+      if (!byDay[wd]) return;
+      var dayMins = 0;
+      Object.keys(byDay[wd]).forEach(function (s) { dayMins += byDay[wd][s]; });
+      daysOrdered.push({
+        weekday: wd,
+        label: formatRosterDayLabel(wd, weSun),
+        bySheet: byDay[wd],
+        dayMins: dayMins
+      });
+    });
+    var weekMins = 0;
+    daysOrdered.forEach(function (d) { weekMins += d.dayMins; });
+    var sheetNames = PAULA_TABS.map(function (t) { return t.sheet; });
+    /* Include Other only if any minutes */
+    var hasOther = daysOrdered.some(function (d) { return (d.bySheet[OTHER_SHEET] || 0) > 0; });
+    if (hasOther) sheetNames = sheetNames.concat([OTHER_SHEET]);
+    return { daysOrdered: daysOrdered, weekMins: weekMins, sheetNames: sheetNames, weSunday: weSun };
+  }
+
+  function rosterHeaders(sheetNames) {
+    var h = ['Prep day'];
+    sheetNames.forEach(function (s) {
+      var short = ROSTER_SHORT[s] || s;
+      h.push(short + ' hours');
+      h.push(short + ' chefs');
+    });
+    h.push('Day hours');
+    h.push('Day chefs');
+    return h;
+  }
+
+  function fillFinalRosterExcelJS(ws, paulaRows, weLabel) {
+    var model = buildRosterModel(paulaRows, weLabel);
+    var sheets = model.sheetNames;
+    var headers = rosterHeaders(sheets);
+    var lastCol = headers.length;
+    var we = weLabel || 'WEEK ENDING: ____';
+
+    ws.mergeCells(1, 1, 1, lastCol);
+    var weCell = ws.getCell(1, 1);
+    weCell.value = we;
+    weCell.font = { name: 'Calibri', size: 18, bold: true };
+    weCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    weCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+    weCell.border = thinBorder();
+    ws.getRow(1).height = 24;
+
+    ws.mergeCells(2, 1, 2, lastCol);
+    var title = ws.getCell(2, 1);
+    title.value = FINAL_ROSTER_NAME;
+    title.font = { name: 'Calibri', size: 16, bold: true };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    title.border = thinBorder();
+    ws.getRow(2).height = 21;
+
+    var head = ws.getRow(3);
+    headers.forEach(function (h, i) {
+      var cell = head.getCell(i + 1);
+      cell.value = h;
+      styleHeaderCell(cell);
+    });
+    head.height = 28;
+
+    var rowNum = 4;
+    model.daysOrdered.forEach(function (day) {
+      var row = ws.getRow(rowNum);
+      row.getCell(1).value = day.label;
+      var col = 2;
+      sheets.forEach(function (s) {
+        var mins = day.bySheet[s] || 0;
+        row.getCell(col).value = mins > 0 ? hoursFromMins(mins) : '';
+        row.getCell(col + 1).value = mins > 0 ? chefsForMinutes(mins) : '';
+        col += 2;
+      });
+      row.getCell(col).value = hoursFromMins(day.dayMins);
+      row.getCell(col + 1).value = chefsForMinutes(day.dayMins);
+      for (var c = 1; c <= lastCol; c++) styleDataCell(row.getCell(c), { horizontal: c === 1 ? 'left' : 'center' });
+      row.getCell(1).font = { name: 'Calibri', size: 12, bold: true };
+      row.height = 18;
+      rowNum++;
+    });
+
+    /* Week grand total */
+    var tot = ws.getRow(rowNum);
+    tot.getCell(1).value = 'WEEK TOTAL';
+    var col2 = 2;
+    var weekBySheet = {};
+    sheets.forEach(function (s) { weekBySheet[s] = 0; });
+    model.daysOrdered.forEach(function (day) {
+      sheets.forEach(function (s) { weekBySheet[s] += day.bySheet[s] || 0; });
+    });
+    sheets.forEach(function (s) {
+      var mins = weekBySheet[s];
+      tot.getCell(col2).value = mins > 0 ? hoursFromMins(mins) : '';
+      tot.getCell(col2 + 1).value = mins > 0 ? chefsForMinutes(mins) : '';
+      col2 += 2;
+    });
+    tot.getCell(col2).value = hoursFromMins(model.weekMins);
+    tot.getCell(col2 + 1).value = chefsForMinutes(model.weekMins);
+    for (var tc = 1; tc <= lastCol; tc++) {
+      styleDataCell(tot.getCell(tc), { horizontal: tc === 1 ? 'left' : 'center' });
+      tot.getCell(tc).font = { name: 'Calibri', size: 12, bold: true, italic: true };
+      tot.getCell(tc).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+    }
+    tot.height = 20;
+
+    /* Column widths */
+    ws.getColumn(1).width = 16;
+    for (var w = 2; w <= lastCol; w++) ws.getColumn(w).width = 11;
+
+    ws.pageSetup = {
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 1,
+      paperSize: 9,
+      printTitlesRow: '1:3'
+    };
+    ws.headerFooter = {
+      oddHeader: '&C&B' + we + ' — Final Roster',
+      evenHeader: '&C&B' + we + ' — Final Roster',
+      oddFooter: '&C&B' + we + ' — Page &P of &N',
+      evenFooter: '&C&B' + we + ' — Page &P of &N'
+    };
+    ws.views = [{ state: 'frozen', ySplit: 3, activeCell: 'A4', showGridLines: true }];
+  }
+
+  function fillFinalRosterXLSX(XLSX, paulaRows, weLabel) {
+    var model = buildRosterModel(paulaRows, weLabel);
+    var sheets = model.sheetNames;
+    var headers = rosterHeaders(sheets);
+    var we = weLabel || 'WEEK ENDING: ____';
+    var aoa = [];
+    var weRow = headers.map(function () { return ''; }); weRow[0] = we;
+    var titleRow = headers.map(function () { return ''; }); titleRow[0] = FINAL_ROSTER_NAME;
+    aoa.push(weRow);
+    aoa.push(titleRow);
+    aoa.push(headers);
+    model.daysOrdered.forEach(function (day) {
+      var row = [day.label];
+      sheets.forEach(function (s) {
+        var mins = day.bySheet[s] || 0;
+        row.push(mins > 0 ? hoursFromMins(mins) : '');
+        row.push(mins > 0 ? chefsForMinutes(mins) : '');
+      });
+      row.push(hoursFromMins(day.dayMins));
+      row.push(chefsForMinutes(day.dayMins));
+      aoa.push(row);
+    });
+    var tot = ['WEEK TOTAL'];
+    var weekBySheet = {};
+    sheets.forEach(function (s) { weekBySheet[s] = 0; });
+    model.daysOrdered.forEach(function (day) {
+      sheets.forEach(function (s) { weekBySheet[s] += day.bySheet[s] || 0; });
+    });
+    sheets.forEach(function (s) {
+      var mins = weekBySheet[s];
+      tot.push(mins > 0 ? hoursFromMins(mins) : '');
+      tot.push(mins > 0 ? chefsForMinutes(mins) : '');
+    });
+    tot.push(hoursFromMins(model.weekMins));
+    tot.push(chefsForMinutes(model.weekMins));
+    aoa.push(tot);
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } }
+    ];
+    ws['!cols'] = [{ wch: 16 }].concat(headers.slice(1).map(function () { return { wch: 11 }; }));
     return ws;
   }
 
@@ -1075,10 +1373,14 @@
         var empty = wb.addWorksheet('Sauce, Purees and Gels');
         fillSheetExcelJS(empty, 'Sauce, Purees and Gels', [], weLabel);
       }
+      /* 4.8.23: Final Roster after Proteins (last section tab) */
+      var rosterWs = wb.addWorksheet(FINAL_ROSTER_NAME);
+      fillFinalRosterExcelJS(rosterWs, paulaRows, weLabel);
+      var sheetNamesOut = sheets.map(function (s) { return s.name; }).concat([FINAL_ROSTER_NAME]);
       return wb.xlsx.writeBuffer().then(function (buf) {
-        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: buf, engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
+        if (helpers.returnBuffer) return { name: name, rows: totalRows, headers: HEADERS, sheets: sheetNamesOut, buffer: buf, engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
         downloadBlob(buf, name);
-        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
+        return { name: name, rows: totalRows, headers: HEADERS, sheets: sheetNamesOut, engine: 'exceljs', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
       });
     }
 
@@ -1097,12 +1399,18 @@
         var ws = fillSheetXLSX(XLSX, sh.name, sh.rows, weLabel);
         XLSX.utils.book_append_sheet(wb, ws, tab);
       });
+      var rosterTab = FINAL_ROSTER_NAME;
+      var rn = 2;
+      while (used[rosterTab.toLowerCase()]) { rosterTab = ('Final Roster-' + rn).slice(0, 31); rn++; }
+      used[rosterTab.toLowerCase()] = true;
+      XLSX.utils.book_append_sheet(wb, fillFinalRosterXLSX(XLSX, paulaRows, weLabel), rosterTab);
+      var sheetNamesOutX = sheets.map(function (s) { return s.name; }).concat([rosterTab]);
       if (helpers.returnBuffer) {
         var out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), buffer: out, engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source });
+        return Promise.resolve({ name: name, rows: totalRows, headers: HEADERS, sheets: sheetNamesOutX, buffer: out, engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source });
       }
       XLSX.writeFile(wb, name);
-      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheets.map(function (s) { return s.name; }), engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
+      return { name: name, rows: totalRows, headers: HEADERS, sheets: sheetNamesOutX, engine: 'xlsx', layout: 'paula-sorted-az', weekEnding: weLabel, weekEndingSource: weInfo.source };
     }
 
     if (typeof document !== 'undefined') {
@@ -1121,7 +1429,7 @@
   U.PAULA_ORGANISED_TABS = PAULA_TABS.map(function (t) { return t.sheet; });
 
   root.Prepline477 = {
-    VERSION: '4.8.22',
+    VERSION: '4.8.23',
     exportOrganisedXlsx: exportOrganisedXlsxPaula,
     buildPaulaOrganisedRows: buildPaulaRows,
     HEADERS: HEADERS,
@@ -1132,9 +1440,16 @@
     staffBatchKey: staffBatchKey,
     applyStaffBatchGrouping: applyStaffBatchGrouping,
     formatGroupStaffLabel: formatGroupStaffLabel,
+    formatPrepDurationLabel: formatPrepDurationLabel,
+    formatStaffShifts: formatStaffShifts,
+    shiftsForMinutes: shiftsForMinutes,
     chefsForGroupMinutes: chefsForGroupMinutes,
     formatStaffDuration: formatStaffDuration,
     formatPrepDaySubtotal: formatPrepDaySubtotal,
+    formatPrepDayDurationSubtotal: formatPrepDayDurationSubtotal,
+    formatPrepDayStaffSubtotal: formatPrepDayStaffSubtotal,
+    buildRosterModel: buildRosterModel,
+    formatRosterDayLabel: formatRosterDayLabel,
     CHEF_SHIFT_HOURS: CHEF_SHIFT_HOURS,
     prepColourGroupId: prepColourGroupId,
     pastelForGroup: pastelForGroup,
@@ -1143,5 +1458,6 @@
     resolveWeekEndingLabel: resolveWeekEndingLabel,
     loadExcelJS: loadExcelJS,
     sheetForItem: sheetForItem,
+    FINAL_ROSTER_NAME: FINAL_ROSTER_NAME,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

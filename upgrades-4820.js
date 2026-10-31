@@ -1,4 +1,4 @@
-/* Prepline 4.8.22 — A3 landscape prep calendar (trial). Autoprod.
+/* Prepline 4.8.23 — A3 landscape prep calendar (trial). Autoprod.
  * Columns = prep days (Mon…Sun), rows = kitchen sections (colour-coded).
  * Each cell: compact item lines with pack #, event/function short code, group time/chefs.
  * Designed for ONE A3 landscape page (auto-shrink fallback). Print + xlsx + PDF.
@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '4.8.22';
+  var VERSION = '4.8.23';
 
   var DAY_ORDER = [
     '1 Monday', '2 Tuesday', '3 Wednesday', '4 Thursday',
