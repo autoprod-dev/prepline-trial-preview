@@ -199,61 +199,94 @@
   }
 
   function remapSheetSst(sheetXml, sstOff) {
-    if (!sstOff) return sheetXml;
-    // Only remap <v>N</v> inside cells with t="s"
-    return sheetXml.replace(/<c\b([^>]*)>([\s\S]*?)<\/c>/g, function (full, attrs, body) {
-      if (!/\bt="s"/.test(attrs)) return full;
-      var body2 = body.replace(/<v>(\d+)<\/v>/g, function (_, n) {
-        return '<v>' + (+n + sstOff) + '</v>';
-      });
-      return '<c' + attrs + '>' + body2 + '</c>';
+    sstOff = sstOff || 0;
+    // Masters store empty cells as <c .../>. A naive <c ...>(.*?)</c> regex treats the
+    // ">" of "/>" as the open tag end and swallows the NEXT real cell until </c>, so
+    // t="s" titles (B1) never get their SST index offset → Pea title becomes "KG".
+    // Match self-closing first; only then open/close pairs.
+    return sheetXml.replace(/<c\b([^>]*)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g, function (full, selfAttrs, openAttrs, body) {
+      if (selfAttrs != null && openAttrs == null) return full;
+      var attrs = openAttrs;
+      if (/<f[\s>]/.test(body)) return full;
+      if (/\bt="s"/.test(attrs)) {
+        if (!sstOff) return full;
+        var body2 = body.replace(/<v>(\d+)<\/v>/g, function (_, n) {
+          return '<v>' + (+n + sstOff) + '</v>';
+        });
+        return '<c' + attrs + '>' + body2 + '</c>';
+      }
+      var vm = /^[\s]*<v>(\d+)<\/v>[\s]*$/.exec(body);
+      if (!/\bt=/.test(attrs) && vm) {
+        return '<c' + attrs + ' t="s"><v>' + (+vm[1] + sstOff) + '</v></c>';
+      }
+      return full;
     });
+  }
+
+  /** Column index 1-based from A=1. */
+  function colIndex(col) {
+    var n = 0;
+    var s = String(col || '').toUpperCase();
+    for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+    return n;
+  }
+
+  /** Insert cellXml into row in ascending column order (GS ignores out-of-order cells). */
+  function insertCellInRow(sheetXml, addr, cellXml) {
+    var rowM = /^([A-Z]+)(\d+)$/i.exec(addr);
+    if (!rowM) return sheetXml;
+    var want = colIndex(rowM[1]);
+    var rowNum = rowM[2];
+    var rowRe = new RegExp('(<row r="' + rowNum + '"[^>]*>)([\\s\\S]*?)(</row>)');
+    var rm = rowRe.exec(sheetXml);
+    if (!rm) return sheetXml;
+    var body = rm[2];
+    var inserted = false;
+    var newBody = body.replace(/<c r="([A-Z]+)(\d+)"[^>]*(?:\/>|>[\s\S]*?<\/c>)/g, function (full, cCol) {
+      if (inserted) return full;
+      if (colIndex(cCol) > want) {
+        inserted = true;
+        return cellXml + full;
+      }
+      return full;
+    });
+    if (!inserted) newBody = body + cellXml;
+    return sheetXml.slice(0, rm.index) + rm[1] + newBody + rm[3] + sheetXml.slice(rm.index + rm[0].length);
   }
 
   /** Replace or set a cell's value in sheet XML. keeps style attr. */
   function patchCell(sheetXml, addr, opts) {
     // opts: {number: n} | {text: s} | {cached: n} for formula cells
-    var re = new RegExp('<c r="' + addr + '"([^>]*?)(/?)>([\\s\\S]*?)<\\/c>|<c r="' + addr + '"([^>]*?)/>');
-    var m = re.exec(sheetXml);
+    // CRITICAL: match self-closing cells FIRST. The old pattern
+    //   <c r="B2"([^>]*?)(/?)>([\s\S]*?)</c>
+    // treated "/>" as "/" + ">" and then consumed the NEXT cell until </c>,
+    // deleting C2 (pax) when patching B2 (event). Google Sheets then ignored the
+    // out-of-order C2 re-inserted at end of row → pax blank, totals 0.
+    var reSelf = new RegExp('<c r="' + addr + '"([^>]*?)/>');
+    var mSelf = reSelf.exec(sheetXml);
+    if (mSelf) {
+      var neuSelf = buildCellXml(addr, opts, mSelf[1] || '');
+      return sheetXml.slice(0, mSelf.index) + neuSelf + sheetXml.slice(mSelf.index + mSelf[0].length);
+    }
+    var reFull = new RegExp('<c r="' + addr + '"([^>]*)>([\\s\\S]*?)<\\/c>');
+    var m = reFull.exec(sheetXml);
     if (!m) {
-      // Cell missing — insert into its row if possible
-      var rowM = /^([A-Z]+)(\d+)$/i.exec(addr);
-      if (!rowM) return sheetXml;
-      var rowNum = rowM[2];
-      var rowRe = new RegExp('(<row r="' + rowNum + '"[^>]*>)([\\s\\S]*?)(</row>)');
-      var rm = rowRe.exec(sheetXml);
-      if (!rm) return sheetXml;
       var cellXml = buildCellXml(addr, opts, ' s="0"');
-      sheetXml = sheetXml.replace(rowRe, function (_, a, body, c) {
-        return a + body + cellXml + c;
-      });
-      return sheetXml;
+      return insertCellInRow(sheetXml, addr, cellXml);
     }
     var full = m[0];
-    var attrs, body;
-    if (m[0].indexOf('/>') === m[0].length - 2 && m[0].indexOf('</c>') < 0) {
-      attrs = m[4] != null ? m[4] : m[1] || '';
-      body = '';
-      var neu = buildCellXml(addr, opts, attrs);
-      return sheetXml.replace(full, neu);
-    }
-    attrs = m[1] || '';
-    body = m[3] || '';
+    var attrs = m[1] || '';
+    var body = m[2] || '';
+    var neu;
     // Preserve formula if present when patching cached value only
     if (opts && opts.cached != null && /<f[\s>]/.test(body)) {
-      var body2 = body.replace(/<v>[^<]*<\/v>/, '').replace(/<\/c>$/, '');
-      // body without closing — actually body is inner
-      var inner = body.replace(/<v>[^<]*<\/v>/g, '');
-      var vStr = String(opts.cached);
-      neu = '<c r="' + addr + '"' + attrs + '>' + inner + '<v>' + xmlEscape(vStr) + '</v></c>';
-      // cleanup doubled content — rebuild carefully
       var fMatch = body.match(/<f\b[^>]*>[\s\S]*?<\/f>|<f\b[^>]*\/>/);
       var fXml = fMatch ? fMatch[0] : '';
-      neu = '<c r="' + addr + '"' + stripType(attrs) + '>' + fXml + '<v>' + xmlEscape(vStr) + '</v></c>';
-      return sheetXml.replace(full, neu);
+      neu = '<c r="' + addr + '"' + stripType(attrs) + '>' + fXml + '<v>' + xmlEscape(String(opts.cached)) + '</v></c>';
+      return sheetXml.slice(0, m.index) + neu + sheetXml.slice(m.index + full.length);
     }
     neu = buildCellXml(addr, opts, attrs);
-    return sheetXml.replace(full, neu);
+    return sheetXml.slice(0, m.index) + neu + sheetXml.slice(m.index + full.length);
   }
 
   function stripType(attrs) {
@@ -812,7 +845,9 @@
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
       '<sheets>' +
       sheetXmlParts +
-      '</sheets></workbook>';
+      '</sheets>' +
+      '<calcPr calcId="191029" fullCalcOnLoad="1"/>' +
+      '</workbook>';
     out.file('xl/workbook.xml', wbXml);
 
     var relParts = sheetEntries
@@ -942,6 +977,8 @@
     ensureJSZip: ensureJSZip,
     mergeStylesXml: mergeStylesXml,
     patchCell: patchCell,
+    insertCellInRow: insertCellInRow,
+    remapSheetSst: remapSheetSst,
     updateFormulaCaches: updateFormulaCaches
   };
   root.AllocPrepOoxml = API;
