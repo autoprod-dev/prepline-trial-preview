@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.35-trial">
+<meta name="prepline-version" content="4.8.36-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -790,7 +790,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div class="shell-brand">Prepline</div>
   <div class="shell-tabs">
     <button class="shell-tab-btn active" id="shellTabBtnPreplist" onclick="switchShellTab('preplist')" type="button">Preplist</button>
-    <a class="shell-tab-btn" id="allocLink" href="./allocation/" style="text-decoration:none" title="Section 1: work orders and staff allocation">Work orders &amp; allocation</a>
+    <a class="shell-tab-btn" id="allocLink" href="./allocation/" style="text-decoration:none" title="Section 1: work orders and staff allocation">Work order, allocation &amp; calendar grid</a>
     <button class="shell-tab-btn" id="shellTabBtnHelp" onclick="switchShellTab('help')" type="button">Help</button>
     <button class="shell-tab-btn" id="feedbackBtn" onclick="openFeedback()" type="button" title="Send feedback (opens your email app or copies the text)">Feedback</button>
     <a class="shell-tab-btn contact-link" id="contactLink" href="#" hidden title="Email Prepline support">Email us</a>
@@ -948,7 +948,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.35</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.36</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -5445,7 +5445,8 @@ function render(){
   let html = versionSwitchHtml() + sampleBannerHtml() + pdfCookedBannerHtml(ROWS) + renderMasterSummary() + poPanelHtml() + yieldPanelHtml() + blockedDaysPanelHtml() + costSummaryHtml();
 
   const u480MoreViews = `<button class="${viewMode==='item'?'':'secondary'}" onclick="setView('item')" type="button" id="itemViewBtn">By item</button>
-    <button class="${viewMode==='week'?'':'secondary'}" onclick="setView('week')" type="button" id="weekViewBtn">Week calendar</button>
+    <!-- Week calendar moved to Work orders & allocation (4.8.37) -->
+    <button class="secondary" type="button" id="weekViewBtn" hidden disabled title="Moved to Work order, allocation & calendar grid">Week calendar</button>
     <button class="${viewMode==='order'?'':'secondary'}" onclick="setView('order')" type="button" id="orderViewBtn">Order sheet</button>
     <button class="${viewMode==='order47'?'':'secondary'}" onclick="setView('order47')" type="button" id="order47ViewBtn">Order (batched)</button>
     <button class="${viewMode==='recipes'?'':'secondary'}" onclick="setView('recipes')" type="button" id="recipesViewBtn">Yield library</button>
@@ -5459,9 +5460,9 @@ function render(){
     ${(viewMode==='dish'||viewMode==='section'||viewMode==='priority') ? `<button class="secondary" onclick="exportPlanPdf47()" type="button">🧾 PDF · this view</button>` : ''}
     <button class="secondary" onclick="exportOrganisedXlsx47()" type="button" title="Paula Sorted layout: one tab per section, yellow header, Total needed = qty × pax">📊 Organised export (yellow header)</button>
     <button class="secondary" onclick="exportOrganisedPdf47()" type="button" title="Printable A4 organised list">🧾 Export PDF</button>
-    <button class="secondary" onclick="printA3Calendar4820()" type="button" title="One-page A3 landscape prep calendar: days × sections">🖨️ Print A3 calendar</button>
-    <button class="secondary" onclick="exportA3CalendarXlsx4820()" type="button" title="A3 prep calendar as Excel">📊 A3 calendar · Excel</button>
-    <button class="secondary" onclick="exportA3CalendarPdf4820()" type="button" title="Save A3 prep calendar as PDF">🧾 A3 calendar · PDF</button>
+    <!-- moved: <button class="secondary" onclick="printA3Calendar4820()" ty… -->
+    <!-- moved: <button class="secondary" onclick="exportA3CalendarXlsx4820(… -->
+    <!-- moved: <button class="secondary" onclick="exportA3CalendarPdf4820()… -->
     <button class="secondary" onclick="shareOrganised47()" type="button" title="Share or open email — you press send">✉️ Email sheet</button>`;
   const u480PrintBtns = `<button class="secondary" onclick="printAllSections()" type="button">🖨️ Print all sections (one page complete)</button>
     <button class="secondary" onclick="printAllDays()" type="button">🖨️ Print all prep days (one page complete)</button>

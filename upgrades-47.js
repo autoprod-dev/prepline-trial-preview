@@ -1424,6 +1424,10 @@
         '<input type="search" data-u47-filter="' + k + '" value="' + escH(val) + '" placeholder="Filter…"></label>';
     });
     html += '</div>';
+    var durNote = (root.Prepline477 && root.Prepline477.PREP_DURATION_ASSUMPTION_NOTE) ||
+      'Duration results are assessed assuming bulk preps are already made 1 week prior and are just to be collected or trayed up for the event';
+    html += '<p class="u47-prep-duration-note" style="color:#c00;font-weight:700;margin:8px 0 12px;max-width:52rem;line-height:1.35">' +
+      escH(durNote) + '</p>';
 
     function sortMark(col) {
       if (state.sortCol !== col) return '';
@@ -1645,6 +1649,7 @@
   function css() {
     return [
       '.u47-note{font-size:12.5px;color:var(--ink-soft,#5C5A52);margin:0 0 12px;}',
+      '.u47-prep-duration-note{color:#c00;font-weight:700;}',
       '.u47-dayhead{margin:0 0 8px;}',
       '.u47-sechead{margin:12px 0 6px;font-size:14px;color:var(--ink-soft,#5C5A52);}',
       '.u47-tickbar{display:inline-flex;align-items:center;gap:6px;margin-top:6px;}',

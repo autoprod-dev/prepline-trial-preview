@@ -127,41 +127,25 @@
   }
 
   function ensureCalendarSlot() {
+    /* 4.8.37: calendar grid moved to Work order, allocation & calendar grid */
     var groups = document.getElementById('u480Groups');
     if (!groups) return;
     var existing = document.querySelector('.u4821-wrap[data-u4821="calendarSlot"]');
     if (existing) {
-      existing.classList.toggle('u480-settings-collapsed', !openState.calendarSlot);
-      var b = existing.querySelector('.u4821-toggle');
-      if (b) b.textContent = openState.calendarSlot ? 'Hide' : 'Show';
-      wireToggle(existing, 'calendarSlot');
+      existing.innerHTML =
+        '<div class="u480-settings-bar"><h2>9 · Calendar grid</h2></div>' +
+        '<div class="u4821-body"><p class="small" style="margin:8px 0;color:var(--ink-soft);">Moved to <a href="allocation/">Work order, allocation &amp; calendar grid</a> — upload a Larder, Sauce or Plated work order there.</p></div>';
+      existing.classList.remove('u480-settings-collapsed');
       return;
     }
     var wrap = document.createElement('div');
     wrap.className = 'u4821-wrap no-print';
     wrap.setAttribute('data-u4821', 'calendarSlot');
-    if (!openState.calendarSlot) wrap.classList.add('u480-settings-collapsed');
-    wrap.innerHTML = makeBar('9 · Calendar grid', 'Week / month / year · Print A3', 'calendarSlot');
-    var body = document.createElement('div');
-    body.className = 'u4821-body';
-    body.innerHTML =
-      '<div class="row" style="gap:8px;flex-wrap:wrap;">' +
-      '<button type="button" class="secondary" id="u4821OpenCalBtn">Open week calendar</button>' +
-      '<span class="small" style="color:var(--ink-soft);font-size:12px;">Opens the calendar grid view (same as Week under More views).</span>' +
-      '</div>';
-    wrap.appendChild(body);
+    wrap.innerHTML =
+      '<div class="u480-settings-bar"><h2>9 · Calendar grid</h2>' +
+      '<button type="button" class="ghost u4821-toggle" style="visibility:hidden">Show</button></div>' +
+      '<div class="u4821-body"><p class="small" style="margin:8px 0;color:var(--ink-soft);">Moved to <a href="allocation/">Work order, allocation &amp; calendar grid</a> — upload a Larder, Sauce or Plated work order there. Week / Month / Year + A4/A3 print live on that page.</p></div>';
     groups.appendChild(wrap);
-    wireToggle(wrap, 'calendarSlot');
-    var btn = body.querySelector('#u4821OpenCalBtn');
-    if (btn) {
-      btn.addEventListener('click', function () {
-        openState.calendarSlot = true;
-        try {
-          if (typeof setView === 'function') setView('week');
-          else if (typeof root.setView === 'function') root.setView('week');
-        } catch (e) {}
-      });
-    }
   }
 
   function removeProgressUi() {

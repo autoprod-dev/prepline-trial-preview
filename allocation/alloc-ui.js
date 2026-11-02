@@ -2,7 +2,7 @@
 (function(){
 'use strict';
 const E=window.AllocEngine, X=window.XLSX;
-const KEY='prepline.alloc.v2', SKEY='prepline.alloc.settings.v1';
+const KEY='prepline.alloc.v2', SKEY='prepline.alloc.settings.v1', SEC_KEY='prepline.alloc.section.v1';
 const $=id=>document.getElementById(id);
 const DAYCAP=d=>d[0].toUpperCase()+d.slice(1);
 const WIDTHS=[36.4,15.4,18.1,17.4,25.4,35.1,9.4,6.4,9];
@@ -10,6 +10,44 @@ let state=null, settings=loadSettings(), saveTimer=null;
 
 function loadSettings(){try{return Object.assign({},E.DEFAULT_ALLOC_SETTINGS,JSON.parse(localStorage.getItem(SKEY)||'{}'));}catch(e){return Object.assign({},E.DEFAULT_ALLOC_SETTINGS);}}
 function save(now){clearTimeout(saveTimer);const go=()=>{if(!state)return;state.savedAt=new Date().toISOString();try{localStorage.setItem(KEY,JSON.stringify(state));$('saveState').textContent='· saved '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});}catch(e){$('saveState').textContent='· could not save on this device';}};now?go():(saveTimer=setTimeout(go,300));}
+
+
+/* ---------- kitchen section selector (Larder / Sauce / Plated) ---------- */
+const SECTIONS=['Larder','Sauce','Plated'];
+function getSelectedSection(){
+  const el=$('sectionSel');
+  if(el&&SECTIONS.includes(el.value))return el.value;
+  try{const v=localStorage.getItem(SEC_KEY);if(SECTIONS.includes(v))return v;}catch(e){}
+  return 'Larder';
+}
+function setSelectedSection(sec,persist){
+  if(!SECTIONS.includes(sec))sec='Larder';
+  const el=$('sectionSel'); if(el) el.value=sec;
+  if(persist!==false){try{localStorage.setItem(SEC_KEY,sec);}catch(e){}}
+  const hint=$('sectionHint');
+  if(hint){
+    if(sec==='Plated') hint.textContent='Plated → day summary + sorter prep list + calendar.';
+    else if(sec==='Sauce') hint.textContent='Sauce → Production allocation (Syd eats / Canape / Crew+MT / Retail) + day summary + calendar.';
+    else hint.textContent='Larder → allocation fill + calendar.';
+  }
+  return sec;
+}
+function initSectionSel(){
+  let saved='Larder';
+  try{const v=localStorage.getItem(SEC_KEY);if(SECTIONS.includes(v))saved=v;}catch(e){}
+  setSelectedSection(saved,false);
+  const el=$('sectionSel');
+  if(el&&!el.__secBound){
+    el.__secBound=true;
+    el.addEventListener('change',()=>{
+      setSelectedSection(el.value,true);
+      if(state&&state.woRows&&confirm('Rebuild this work order as '+el.value+'? Edits will be cleared.')){
+        generate(state.woRows,{name:state.woName,sig:state.woSig,kitchenSection:el.value});
+        status('Rebuilt as '+el.value+'.');
+      }
+    });
+  }
+}
 
 /* ---------- work order reading ---------- */
 const COLS='ABCDEFGHIJKLMNOPQ'.split('');let rawRows=null,rawMeta=null;
@@ -34,14 +72,35 @@ function generate(rows,meta){const wo=E.parseWorkOrder(rows);if(!wo.days.length)
  const S=Object.assign({},settings,{kitchenSection:meta.kitchenSection||settings.kitchenSection||wo.kitchenSection||'Larder'});
  const res=E.buildAllocation(wo,S);if(window.AllocRaw)AllocRaw.applyStaff(res);
  lastWo=wo;
- state={v:1,woName:meta.name,woSig:meta.sig,woRows:rows,kitchenSection:S.kitchenSection,createdAt:new Date().toISOString(),day:0,res:{week:res.week,fileDate:res.fileDate,lastWO:res.lastWO,sheets:res.sheets,skipped:res.skipped,placed:res.trace.length,kitchenSection:res.kitchenSection}};
- save(true);render();updPrepFlow();}
+ state={v:1,woName:meta.name,woSig:meta.sig,woRows:rows,kitchenSection:S.kitchenSection,createdAt:new Date().toISOString(),day:0,res:{week:res.week,fileDate:res.fileDate,lastWO:res.lastWO,sheets:res.sheets,skipped:res.skipped,placed:res.trace.length,kitchenSection:res.kitchenSection,functions:res.functions||null,mode:res.mode||null,note:res.note||null}};
+ try{if(window.AllocCalendar)AllocCalendar.ingestFromAllocation(wo,res,{name:meta.name,kitchenSection:S.kitchenSection,functions:res.functions});}catch(e){console.warn('[alloc-cal]',e);}
+ save(true);render();updPrepFlow();updSauceFlow();}
 
 async function onFile(f){if(!f)return;if(!/\.xls[xm]?$/i.test(f.name)){status('That is not an Excel file. Please choose the work order .xlsx.',true);return;}
  if(state&&state.edited&&!confirm('Loading a new work order replaces the current allocation and clears your edits. Continue?'))return;
- status('Reading '+f.name+' …');try{const pack=readWO(await f.arrayBuffer());const rows=pack.rows;localStorage.removeItem(KEY);const meta={name:f.name,sig:f.name+'|'+f.size+'|'+f.lastModified,kitchenSection:pack.kitchenSection,sheetNames:pack.sheetNames};
+ status('Reading '+f.name+' …');try{const pack=readWO(await f.arrayBuffer());const rows=pack.rows;localStorage.removeItem(KEY);
+  /* Prefer the user's section choice; auto-detect only suggests when selector matches or user left it. */
+  const chosen=getSelectedSection();
+  const detected=pack.kitchenSection||'Larder';
+  if(detected!==chosen){
+    /* Soft suggest: update hint but keep user choice */
+    const hint=$('sectionHint');
+    if(hint) hint.textContent='File looks like '+detected+'; using your selection: '+chosen+'. Change the selector and re-upload to switch.';
+  }
+  const section=chosen;
+  setSelectedSection(section,true);
+  const meta={name:f.name,sig:f.name+'|'+f.size+'|'+f.lastModified,kitchenSection:section,sheetNames:pack.sheetNames,detected:detected};
   rawRows=null;
-  if(window.AllocRaw&&AllocRaw.isRaw(rows)&&pack.kitchenSection!=='Plated'){rawRows=rows;rawMeta=meta;useRawWeek(null);}else{$('weekRow').hidden=true;generate(rows,meta);status('Loaded '+f.name+' as '+pack.kitchenSection+(pack.kitchenSection==='Plated'?' — day summary + prep list ready below.':'.'));}}catch(e){console.error(e);status('Could not read this work order: '+e.message,true);}}
+  const skipRaw=section==='Plated'||section==='Sauce';
+  if(!skipRaw&&window.AllocRaw&&AllocRaw.isRaw(rows)){rawRows=rows;rawMeta=meta;useRawWeek(null);}
+  else{$('weekRow').hidden=true;generate(rows,meta);
+    let msg='Loaded '+f.name+' as '+section;
+    if(detected!==section) msg+=' (file suggested '+detected+')';
+    if(section==='Plated') msg+=' — day summary + prep list ready below.';
+    else if(section==='Sauce') msg+=' — Sauce Production allocation + day summary + calendar.';
+    else msg+=' — allocation + calendar.';
+    status(msg);
+  }}catch(e){console.error(e);status('Could not read this work order: '+e.message,true);}}
 function useRawWeek(ws){const n=AllocRaw.normalise(rawRows,ws);const all=AllocRaw.mondays(rawRows);const sel=$('weekSel');
  sel.innerHTML=all.map(m=>`<option value="${m}"${m===n.weekStart?' selected':''}>Week of ${new Date(m+"T00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}</option>`).join('');if(!all.includes(n.weekStart))sel.insertAdjacentHTML('afterbegin',`<option value="${n.weekStart}" selected>Week of ${fmtDate(n.weekStart)}</option>`);$('weekRow').hidden=false;
  generate(n.rows,{...rawMeta,raw:true,weekStart:n.weekStart});state.rawNote=`Raw work order export: kept ${n.stats.kept} Larder / combo rows for this week and coloured ${n.stats.coloured} by best guess (${n.stats.dropped} pastry, sauce and other rows left out).`;save(true);render();}
@@ -137,6 +196,32 @@ function updPrepFlow(){
   if(pl) pl.disabled = !(plated && lastWo && window.AllocPrepList && masterBuffers.length);
   if($('daySummaryName') && lastWo && window.AllocPrepList) $('daySummaryName').textContent = AllocPrepList.summaryFileName ? AllocPrepList.summaryFileName(lastWo) : '';
   if($('prepListName') && lastWo && window.AllocPrepList) $('prepListName').textContent = AllocPrepList.prepFileName ? AllocPrepList.prepFileName(lastWo) : '';
+  updSauceFlow();
+}
+function updSauceFlow(){
+  const card=$('sauceFlowCard'); if(!card) return;
+  const sauce = !!(state && (state.kitchenSection==='Sauce' || (state.res&&state.res.kitchenSection==='Sauce')));
+  card.hidden = !sauce;
+  const btn=$('dlSauceSummary');
+  if(btn) btn.disabled = !(sauce && lastWo && window.AllocSauce);
+  if($('sauceSummaryName') && lastWo && window.AllocSauce){
+    $('sauceSummaryName').textContent = (AllocSauce.summaryFileName?AllocSauce.summaryFileName(lastWo):'Sauce_DaySummary_BASIC.xlsx')+'';
+  }
+  const st=$('sauceStatus');
+  if(st){
+    if(sauce) st.textContent = (state.res&&state.res.note)||'Sauce Production allocation ready.';
+    else st.textContent = '';
+  }
+}
+function onDlSauceSummary(){
+  if(!lastWo||!window.AllocSauce){status('Upload a Sauce work order first (select Sauce above).',true);return;}
+  try{
+    const out=AllocSauce.buildDaySummary({wo:lastWo, XLSX:X});
+    if(!out.workbook){status('Sauce day summary built but XLSX missing.',true);return;}
+    const buf=X.write(out.workbook,{type:'array', bookType:'xlsx'});
+    downloadBlob(out.fileName, buf);
+    status('Downloaded '+out.fileName+' (BASIC · '+((out.rows&&out.rows.length)||0)+' functions).');
+  }catch(e){console.error(e);status('Sauce day summary failed: '+e.message,true);}
 }
 function downloadBlob(name, buf){
   const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -271,9 +356,12 @@ function onAddBespoke(){
   const key = dish.replace(/textures of\s+/i,'').split(/\s+/).slice(0,2).join(' ').slice(0,14) || 'Bespoke';
   if(date) tab = AllocPrepList.tabName(date, 'M', key, acronym);
   else tab = (key+' - '+acronym).slice(0,31);
-  bespokeSheets.push({tab, dish, date, event, meal, pax, acronym, ws, master:'(bespoke)'});
+  const wbQ=X.utils.book_new();
+  X.utils.book_append_sheet(wbQ, ws, tab.slice(0,31));
+  const xbuf=AllocPrepList.writePrepXlsx?AllocPrepList.writePrepXlsx(wbQ,X):X.write(wbQ,{type:'array',bookType:'xlsx',cellStyles:true});
+  bespokeSheets.push({tab, dish, date, event, meal, pax, acronym, ws, master:'(bespoke)', xlsxBytes: xbuf instanceof Uint8Array?xbuf:new Uint8Array(xbuf)});
   renderBespoke();
-  status('Added bespoke sheet "'+tab+'" with Paula colour legend. Download prep list to include it.');
+  status('Added bespoke sheet "'+tab+'" (blank master layout). Download prep list to include it.');
   if($('bespokeDish'))$('bespokeDish').value='';
 }
 
@@ -301,7 +389,7 @@ $('clearAlloc').onclick=()=>{if(!confirm('Clear the allocation and all edits fro
 $('applySettings').onclick=()=>applySettings(false);$('resetSettings').onclick=()=>applySettings(true);
 window.addEventListener('beforeprint',()=>{if(state&&!$('printArea').innerHTML)$('printArea').innerHTML=printSheetHTML(state.res.sheets[state.day]);});
 window.addEventListener('afterprint',()=>{$('printArea').innerHTML='';});
-fillSettings();try{state=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){state=null;}if(state&&state.v!==1)state=null;render();updPrepFlow();if(!state)status('No work order loaded yet.');
+initSectionSel();fillSettings();try{state=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){state=null;}if(state&&state.v!==1)state=null;render();updPrepFlow();updSauceFlow();if(!state)status('No work order loaded yet. Choose Larder, Sauce or Plated, then upload.');
 /* ---------- edit mode: drag & drop (pointer events: mouse, touch, pen), undo, reset ---------- */
 let undoStack=[];const UNDO_MAX=50;
 function snap(){if(!state)return;undoStack.push(JSON.stringify(state.res.sheets));if(undoStack.length>UNDO_MAX)undoStack.shift();updUndo();}
@@ -354,6 +442,7 @@ function printStationSheets(){
 }
 
 const _ds=$('dlDaySummary'); if(_ds)_ds.onclick=onDlDaySummary;
+const _ss=$('dlSauceSummary'); if(_ss)_ss.onclick=onDlSauceSummary;
 const _pl=$('dlPrepList'); if(_pl)_pl.onclick=onDlPrepList;
 const _mf=$('masterFiles'); if(_mf)_mf.addEventListener('change',()=>{onMasterFiles(_mf.files);});
 const _ba=$('bespokeAdd'); /* full editor wired by alloc-sheet-editor.js */
@@ -361,5 +450,5 @@ const _bq=$('bespokeQuickAdd'); if(_bq)_bq.onclick=onAddBespoke;
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bespoke-del]'); if(!b)return; bespokeSheets.splice(+b.dataset.bespokeDel,1); renderBespoke(); status('Removed bespoke sheet.');});
 loadBespoke();
 
-window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},get bespoke(){return bespokeSheets;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,onAddBespoke,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();},setBespoke:(arr)=>{bespokeSheets=arr||[];renderBespoke();status((bespokeSheets.length||0)+' bespoke sheet(s) ready for prep download.');}};
+window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},get bespoke(){return bespokeSheets;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onDlSauceSummary,updSauceFlow,getSelectedSection,setSelectedSection,onMasterFiles,onAddBespoke,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();},setBespoke:(arr)=>{bespokeSheets=arr||[];renderBespoke();status((bespokeSheets.length||0)+' bespoke sheet(s) ready for prep download.');}};
 })();

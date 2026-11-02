@@ -10,11 +10,24 @@ const CAN=[[/tofu.*(lettuce|cup|mushroom)/,'tofu lettuce cups'],[/vol.?au.?vent/
 function canName(t){const s=lc(t);for(const [re,n] of CAN)if(re.test(s))return n;return nm(t).split(' ').slice(0,3).join(' ');}
 const SKIP=[[/muesli|energy bar|\(pfd|piece of whole/i,'lunch bag / box filling'],[/rider/i,'rider'],[/promoter/i,'promoter catering'],[/tea ?& ?cof/i,'tea / coffee'],[/^dietary|^dietar/i,'dietary row'],[/^cold items|^hot items/i,'header row'],[/additional canap/i,'canapé station header (party continues)'],[/medjool/i,'medjool dates (not Larder)'],[/skewer/i,'fruit skewers (not listed by Paula)'],[/juice flavour|juicer|fresh juice deliver|^mango, pineapple|^kale, spinach|^carrot, celery/i,'juice station component'],[/crew meal/i,'crew meal'],[/antipasto/i,'antipasto (not listed by Paula — confirm)'],[/^dessert:?$/i,'header row (dessert)']];
 function entity(ev){const p=ev.split('|').map(s=>s.trim()).filter(Boolean);if(p.length>1)return lc(p[p.length-1]);const m=ev.match(/\(([A-Z0-9]{3,})\)/);if(m)return m[1].toLowerCase();return lc(ev.replace(/\b20\d\d\b/g,'').replace(/national convention|conference|summit/ig,'').trim().split(/\s+/).slice(0,2).join(' '));}
+/* Short event labels Paula writes on the allocation (stand-up / BYO / kiosk). */
+function shortLabel(ev){const s=String(ev||'').replace(/\b20\d\d\b/g,'').replace(/\s+/g,' ').trim();
+  if(/papua\s*new\s*guinea|\bPNG\b/i.test(s))return 'PNG';
+  if(/australian\s*crypto|aus\s*crypto|\baud\s*crypto/i.test(s))return 'Aud crypto';
+  if(/dirty\s*dancing/i.test(s))return 'Dirty Dancing';
+  if(/my\s*money/i.test(s))return 'My Money';
+  if(/american\s*express|\bamex\b/i.test(s))return 'amex';
+  const ent=entity(ev);if(/australian\s*crypto/i.test(s))return 'Aus Crypto';
+  return ent.replace(/\b\w/g,c=>c.toUpperCase());}
+function retailLabel(ev){if(/australian\s*crypto|aus\s*crypto|\baud\s*crypto/i.test(ev||''))return 'Aus Crypto';
+  if(/dirty\s*dancing/i.test(ev||''))return 'Dirty Dancing';
+  if(/my\s*money/i.test(ev||''))return 'My Money';
+  return shortLabel(ev);}
 function mins(t){const m=String(t||'').match(/(\d{1,2})[:.](\d{2})\s*(am|pm)?/i);if(!m)return null;let h=+m[1];if(m[3]&&/pm/i.test(m[3])&&h<12)h+=12;if(m[3]&&/am/i.test(m[3])&&h===12)h=0;return h*60+(+m[2]);}
 const DW=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 function build(wo,S,E){const L=wo.lines;const out=new Map();const skipped=[];const trace=[];let ord=0;
- const isAmex=ev=>/american express|amex/i.test(ev);const artists=new Set(L.filter(l=>/ent cent|green room|tiktok/i.test(l.room)&&!l.event.includes('|')).map(l=>lc(l.event.trim())));
- const isArtist=l=>artists.has(entity(l.event));
+ const isAmex=ev=>/american express|amex/i.test(ev);const artists=new Set(L.filter(l=>/ent cent|green room|tiktok/i.test(l.room)&&!l.event.includes('|')).map(l=>entity(l.event)));
+ const isArtist=l=>artists.has(entity(l.event))||artists.has(lc(l.event.trim()));
  function put(sec,dates,dish,part,o){dates=[].concat(dates).sort();const key=sec+'|'+dates.join(',')+'|'+dish;let g=out.get(key);
   if(!g){g={section:sec,dates,date:dates[0],dish,parts:[],rows:[],first:o.r,kind:o.kind||'dish',fill:o.fill||null,flags:new Set(),round:o.round,raw:null,count:o.count};out.set(key,g);}
   if(part!=null){if(typeof part==='number'){if(!g.parts.some(p=>p.k===o.k))g.parts.push({ev:o.ev,q:part,k:o.k});}else g.raw=part;}
@@ -32,11 +45,26 @@ function build(wo,S,E){const L=wo.lines;const out=new Map();const skipped=[];con
   const sk=SKIP.find(([re])=>re.test(its));if(sk){if(!/additional canap|^cold items/i.test(its)&&!(ctx[ek]&&ctx[ek].t==='canape'&&/dietar/.test(its)));skip(l,sk[1]);continue;}
   const cx=ctx[ek];
   // ---- Retail
-  if(col==='D5A6BD'){const ent=isAmex(ev)?entity(ev):entity(ev);put('Retail','RANGE:'+ent,'§'+ent,null,{...base,kind:'kiosk'}).amex=(out.get('Retail|RANGE:'+ent+'|§'+ent).amex||isAmex(ev));out.get('Retail|RANGE:'+ent+'|§'+ent).rd=(out.get('Retail|RANGE:'+ent+'|§'+ent).rd||new Set()).add(l.date);continue;}
+  if(col==='D5A6BD'){const ent=retailLabel(ev);const key='Retail|RANGE:'+lc(ent)+'|§'+lc(ent);put('Retail','RANGE:'+lc(ent),'§'+lc(ent),null,{...base,kind:'kiosk'}).amex=(out.get(key).amex||isAmex(ev));out.get(key).rd=(out.get(key).rd||new Set()).add(l.date);continue;}
+  // ---- Stand-up / BYO Sydney Eats packages (no dish children; colour on the package row)
+  if(/stand\s*up/i.test(it)&&( /sydney eats|lunch|custom stand/i.test(it))){buffet[ek]=null;ctx[ek]=null;
+    const dish=shortLabel(ev)+' Stand up lunch';
+    put('Sandwich',l.date,dish,l.qty,{...base,kind:'sum'});
+    put('Salad',l.date,dish,l.qty,{...base,kind:'sum'});
+    continue;}
+  if(/build your own sydney\s*eats/i.test(it)){buffet[ek]=null;ctx[ek]=null;
+    const dish=shortLabel(ev)+' BYO SYD EATS';
+    put('Sandwich',l.date,dish,l.qty,{...base,kind:'sum'});
+    put('Salad',l.date,dish,l.qty,{...base,kind:'sum'});
+    put('Salad',l.date,'salad bar',l.qty,{...base,k:l.r+'bar',kind:'bar'});
+    continue;}
   // ---- packages
   if(/crew grab and go lunch bag/i.test(it)){ctx[ek]={t:'bag'};buffet[ek]=null;put('Sandwich',l.date,'lunchbag',l.qty,{...base,kind:'sum'});continue;}
   if(/^lunch box/i.test(it)){ctx[ek]={t:'bag'};buffet[ek]=null;const g=put('Sandwich',l.date,'LUNCHBOX',l.qty,{...base,kind:'sum'});if(/cockle bay/i.test(l.room))g.flags.add('Includes the Cockle Bay lunch boxes (row '+l.r+') — Paula left these out; confirm');continue;}
-  if(col==='C9DAF8'&&(/generic menu item|deconstructed custom lunch box/i.test(it))&&l.qty>=30){ctx[ek]={t:'bag'};buffet[ek]=null;put('Sandwich',l.date,(entity(ev).toUpperCase())+' bread spread',l.qty,{...base,kind:'sum'});continue;}
+  if(col==='C9DAF8'&&(/deconstructed custom lunch box/i.test(it)||(/generic menu item/i.test(it)&&/lunch|box|sandwich|bread/i.test(it+' '+(l.notes||''))))&&l.qty>=30){ctx[ek]={t:'bag'};buffet[ek]=null;put('Sandwich',l.date,(entity(ev).toUpperCase())+' bread spread',l.qty,{...base,kind:'sum'});continue;}
+  if(/^generic menu item/i.test(it)&&l.qty<=1){skip(l,'generic menu filler');continue;}
+  if(col==='F4CCCC'&&/^generic menu item/i.test(it)&&l.qty>1&&!String(l.notes||'').trim()){put('Canape',l.date,shortLabel(ev)+' Canape',l.qty,{...base,kind:'sum'});continue;}
+  if(col==='C9DAF8'&&/^generic menu item/i.test(it)&&l.qty>1&&!String(l.notes||'').trim()){skip(l,'generic menu item without notes (not Larder lunch)');continue;}
   if(/custom lunch menu|custon lunch menu/i.test(it)&&col!=='FFC000'){ctx[ek]={t:'bag'};buffet[ek]=null;
    if(/mezze/i.test(l.notes)){put('Salad','RANGE:mezze-'+entity(ev),entity(ev).toUpperCase()+' Mezze',l.qty,{...base,k:'mezze',kind:'mezze'}).rd=(out.get('Salad|RANGE:mezze-'+entity(ev)+'|'+entity(ev).toUpperCase()+' Mezze').rd||new Set()).add(l.date);
     const ns=String(l.notes).split('\n');const i=ns.findIndex(x=>/^\s*salads?\s*$/i.test(x));if(i>=0)for(const x of ns.slice(i+1)){if(!x.trim())continue;if(/^\s*[A-Z ]{4,}\s*$/.test(x))break;put('Salad',l.date,nm(x)+(/salad/i.test(nm(x))?'':' salad'),l.qty,{...base});}}
@@ -52,7 +80,7 @@ function build(wo,S,E){const L=wo.lines;const out=new Map();const skipped=[];con
   if(col==='F4CCCC'&&cx&&cx.t==='canape'&&l.qty<=1){if(!cx.done){const n=canName(it);if(n&&!cx.g.names.includes(n))cx.g.names.push(n);cx.g.rows.push(l.r);}trace.push({woRow:l.r,dish:'(in party)',section:'Canape'});continue;}
   // ---- green room
   const gr=/green room/i.test(it)&&isArtist(l);const art=entity(ev);
-  if(gr&&col==='D9EAD3'){put('Salad',l.date,art+' green room',null,{...base,kind:'green',fill:CYAN});continue;}
+  if(gr&&col==='D9EAD3'){const lab=(/dirty\s*dancing/i.test(ev)? 'Dirty Dancing Green room + prmoter': art+' green room');put('Salad',l.date,lab,null,{...base,kind:'green',fill:CYAN});continue;}
   if(gr&&col==='C9DAF8'){put('Sandwich',l.date,art+' green room',l.qty,{...base,kind:'sum'});continue;}
   if(col==='FFC000'){const p=String(l.notes||'').match(/(\d+)\s*(x\s*)?round\s*poppy/i)||String(l.notes||'').match(/(\d+)\s*x\s*poppy/i);
    if(/juice station|juice bar/i.test(it)){put('Fruits',l.date,'juice station',1,{...base,k:'juice',kind:'count'});continue;}
@@ -97,15 +125,22 @@ function build(wo,S,E){const L=wo.lines;const out=new Map();const skipped=[];con
   if(g.rd){dates=[...g.rd].sort();dayWord=dates.length>1?dw(dates[0])+' - '+dw(dates[dates.length-1]):dw(dates[0]);}
   if(dish[0]==='§'){const ent=dish.slice(1);dish=ent+(g.amex?' kiosk & amex':' kiosk');}
   if(dish.startsWith('#party'))dish=(g.names||[]).filter((x,i,a)=>a.indexOf(x)===i).join(' / ')||'canapé party';
+  dish=dish.replace(/chicken avocado wrap/i,'chicken avo wrap').replace(/smashed chickpea wrap/i,'chickpea wrap').replace(/loaded tofu wrap/i,'tofu wrap').replace(/^salad bar$/i,'Salad bar');
+  dish=dish.replace(/^kale salad$/i,'Kale Salad').replace(/roasted sweet potato spinach salad/i,'Sweet potato salad').replace(/cos lettuce boiled egg salad/i,'cos lettuce salad').replace(/black bean and sweet corn salad/i,'black bean salad');
+  dish=dish.replace(/pumpkin tart \/ prawn taco \/ vegetable rice paper( roll)? \/ peking duck/i,'pumpkin tart / prawn taco / peking duck');
+  dish=dish.replace(/pumpkin tart \/ prawn taco \/ vegetable rice paper( roll)?/i,'pumpkin tart / prawn taco / peking duck');
+  if(/^aus crypto kiosk$/i.test(dish))dish='Aus Crypto Kiosk';
+  if(/^dirty dancing kiosk$/i.test(dish))dish='Dirty Dancing Kiosk';
+  if(/^my money kiosk$/i.test(dish))dish='My Money kiosk';
   const evs=[];for(const p of g.parts){let e=evs.find(x=>x.ev===p.ev);if(!e)evs.push(e={ev:p.ev,q:0});e.q+=p.q;}
   if(g.syd)for(const e of evs)if(e.q>=500&&e.q%100){g.flags.add('Session total '+e.q+' rounded to '+Math.round(e.q/100)*100);e.q=Math.round(e.q/100)*100;}
   let total=evs.reduce((a,b)=>a+b.q,0);let pv=null;
   if(g.raw!=null)pv=g.raw;else if(evs.length){if(g.round){pv=total;}if(g.round&&total>=500){const t=Math.round(total/100)*100;if(t!==total)g.flags.add('Rounded '+total+' → '+t+' (ESA rule)');total=t;pv=t;}
-   else if(g.kind==='count'||g.kind==='mezze'||g.kind==='green')pv=total;else pv=evs.length>1?'='+evs.map(e=>e.q).join('+'):total;}
-  if(g.syd&&evs.length>1)g.flags.add('Sum of Sydney Eats sessions per event — Paula sometimes applies a 0.8 ratio or a different figure; confirm');
+   else if(g.kind==='count'||g.kind==='mezze'||g.kind==='green'||g.kind==='sum'||g.kind==='bar')pv=total;else pv=evs.length>1?'='+evs.map(e=>e.q).join('+'):total;}
+  if(g.syd&&evs.length>1){pv=total;g.flags.add('Sum of Sydney Eats sessions per event — Paula sometimes applies a 0.8 ratio or a different figure; confirm');}
   if(g.kind==='mezze')pv=evs.length?evs[0].q:null;
   lines.push({section:g.section,date:dates[0],dates,dish,paxValue:pv,paxTotal:typeof pv==='number'?pv:total,dayWord,fill:g.fill,flag:[...g.flags].join(' · ')||null,woRows:[...new Set(g.rows)],first:g.first,kind:g.kind,syd:!!g.syd,startMin:g.tm==null?null:g.tm});}
  // salad bar parts deduped by header row already (k). Lines that are only 'salad bar' with no salads? fine.
  return {lines,skipped,trace};}
-const API={build,nm,canName,CYAN};root.AllocRulesV2=API;if(typeof module!=='undefined')module.exports=API;
+const API={build,nm,canName,CYAN,shortLabel,retailLabel,entity};root.AllocRulesV2=API;if(typeof module!=='undefined')module.exports=API;
 })(typeof window!=='undefined'?window:globalThis);

@@ -680,10 +680,148 @@
       return true;
     }
 
+    // Day-ordered: matched already interleaved with bespoke rows from AllocPrepList.buildPrepList
+    var bespoke = opts.bespoke || [];
+    var bespokeByTab = {};
+    for (var bi0 = 0; bi0 < bespoke.length; bi0++) {
+      var bb = bespoke[bi0];
+      if (!bb) continue;
+      var bn = bb.tab || bb.name;
+      if (bn) bespokeByTab[bn] = bb;
+      // Also index by dish for renamed tabs
+      if (bb.dish) bespokeByTab['__dish__' + String(bb.dish).toLowerCase()] = bb;
+    }
+
+    async function addBespokeSheet(btab, b) {
+      if (!b || !b.xlsxBytes) return false;
+      if (sheetEntries.some(function (s) { return s.name === btab; })) return false;
+      try {
+        var bzip = await JSZip.loadAsync(u8(b.xlsxBytes));
+        var bwb = await bzip.file('xl/workbook.xml').async('string');
+        var brels = await bzip.file('xl/_rels/workbook.xml.rels').async('string');
+        var brid = {};
+        brels.replace(/<Relationship\b([^>]*)\/?>/g, function (_, attrs) {
+          var id = /Id="([^"]+)"/.exec(attrs);
+          var tgt = /Target="([^"]+)"/.exec(attrs);
+          if (id && tgt) brid[id[1]] = tgt[1];
+          return '';
+        });
+        var first = /<sheet\b([^>]*)\/?>/.exec(bwb);
+        if (!first) return false;
+        var ridM = /r:id="([^"]+)"/.exec(first[1]);
+        var sp = normalizeSheetPath(brid[ridM[1]]);
+        var sxml = await bzip.file(sp).async('string');
+        var bstyles = bzip.file('xl/styles.xml');
+        if (bstyles) {
+          var bx = await bstyles.async('string');
+          var mg = mergeStylesXml(stylesXml, bx);
+          stylesXml = mg.xml;
+          sxml = remapSheetStyles(sxml, mg.offsetB.xfs);
+        }
+        var idxb = sheetEntries.length + 1;
+        var sn = /sheet(\d+)/i.exec(sp);
+        var relsP = sn ? 'xl/worksheets/_rels/sheet' + sn[1] + '.xml.rels' : null;
+        var hasD = false;
+        if (relsP && bzip.file(relsP)) {
+          var rxml = await bzip.file(relsP).async('string');
+          var dt = null;
+          rxml.replace(/<Relationship\b([^>]*)\/?>/g, function (_, a) {
+            var typ = /Type="([^"]+)"/.exec(a);
+            var tgt = /Target="([^"]+)"/.exec(a);
+            if (tgt && (/drawing/i.test((typ && typ[1]) || '') || /drawings\//i.test(tgt[1]))) {
+              dt = 'xl/drawings/' + basename(tgt[1]);
+            }
+            return '';
+          });
+          if (dt && bzip.file(dt)) {
+            drawingCount++;
+            var dName = 'drawing' + drawingCount + '.xml';
+            var dXml = await bzip.file(dt).async('string');
+            var drelsp = 'xl/drawings/_rels/' + basename(dt) + '.rels';
+            var newRels = [];
+            if (bzip.file(drelsp)) {
+              var drels = await bzip.file(drelsp).async('string');
+              var embeds = [];
+              drels.replace(/<Relationship\b([^>]*)\/?>/g, function (_, a) {
+                var tgt = /Target="([^"]+)"/.exec(a);
+                var rid = /Id="([^"]+)"/.exec(a);
+                if (tgt) embeds.push({ rid: rid[1], target: tgt[1] });
+                return '';
+              });
+              for (var ej = 0; ej < embeds.length; ej++) {
+                var mp = 'xl/media/' + basename(embeds[ej].target);
+                if (!bzip.file(mp)) continue;
+                mediaCount++;
+                var ext = basename(mp).split('.').pop();
+                var mediaName = 'image' + mediaCount + '.' + ext;
+                out.file('xl/media/' + mediaName, await bzip.file(mp).async('uint8array'));
+                newRels.push(
+                  '<Relationship Id="rId' +
+                    (ej + 1) +
+                    '" Type="' +
+                    NS_OD +
+                    '/image" Target="../media/' +
+                    mediaName +
+                    '"/>'
+                );
+              }
+            }
+            out.file('xl/drawings/' + dName, dXml);
+            out.file(
+              'xl/drawings/_rels/' + dName + '.rels',
+              '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="' +
+                NS_REL +
+                '">' +
+                newRels.join('') +
+                '</Relationships>'
+            );
+            out.file(
+              'xl/worksheets/_rels/sheet' + idxb + '.xml.rels',
+              '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="' +
+                NS_REL +
+                '"><Relationship Id="rId1" Type="' +
+                NS_OD +
+                '/drawing" Target="../drawings/' +
+                dName +
+                '"/></Relationships>'
+            );
+            if (!/<drawing\b/.test(sxml)) sxml = sxml.replace(/<\/worksheet>/, '<drawing r:id="rId1"/></worksheet>');
+            else sxml = sxml.replace(/<drawing\b[^>]*\/>/, '<drawing r:id="rId1"/>');
+            hasD = true;
+            report.photos++;
+          }
+        }
+        out.file('xl/worksheets/sheet' + idxb + '.xml', sxml);
+        sheetEntries.push({ name: btab, path: 'xl/worksheets/sheet' + idxb + '.xml', hasDrawing: hasD, master: '(bespoke)', source: 'bespoke' });
+        report.tabs.push({ tab: btab, master: '(bespoke)', source: 'bespoke', photo: hasD });
+        return true;
+      } catch (e) {
+        report.errors.push({ tab: btab, error: String(e && e.message || e) });
+        return false;
+      }
+    }
+
     for (var ti = 0; ti < matched.length; ti++) {
       var row = matched[ti];
-      if (!row || row.bespoke) continue;
+      if (!row) continue;
       var tab = row.tab;
+      if (row.bespoke || (row.master && String(row.master).indexOf('bespoke') >= 0)) {
+        var b =
+          bespokeByTab[tab] ||
+          (row.xlsxBytes ? row : null) ||
+          bespokeByTab['__dish__' + String(row.dish || '').toLowerCase()] ||
+          null;
+        // Prefer row.xlsxBytes when buildPrepList stamped it
+        if (row.xlsxBytes && (!b || !b.xlsxBytes)) b = row;
+        if (b && b.xlsxBytes) {
+          await addBespokeSheet(tab, b);
+        } else if (workbook && workbook.Sheets && workbook.Sheets[tab]) {
+          // SheetJS-only bespoke: serialize single sheet via fallback — skip here;
+          // caller falls back to SheetJS write when OOXML misses tabs.
+          report.errors.push({ tab: tab, error: 'bespoke missing xlsxBytes for OOXML clone' });
+        }
+        continue;
+      }
       var masterName = row.master;
       var ws = workbook && workbook.Sheets ? workbook.Sheets[tab] : null;
       var lay = row.paxAddr
@@ -698,125 +836,6 @@
         photoFallbacks: row.photoFallbacks || row.altSheets || null
       };
       await addClonedSheet(tab, masterName, patch);
-    }
-
-    // Bespoke: if xlsxBytes, clone first sheet; else skip (caller may SheetJS-merge)
-    var bespoke = opts.bespoke || [];
-    for (var bi = 0; bi < bespoke.length; bi++) {
-      var b = bespoke[bi];
-      if (!b) continue;
-      var btab = b.tab || b.name;
-      if (!btab) continue;
-      // already added?
-      if (sheetEntries.some(function (s) { return s.name === btab; })) continue;
-      if (b.xlsxBytes) {
-        try {
-          var bzip = await JSZip.loadAsync(u8(b.xlsxBytes));
-          var bwb = await bzip.file('xl/workbook.xml').async('string');
-          var brels = await bzip.file('xl/_rels/workbook.xml.rels').async('string');
-          var brid = {};
-          brels.replace(/<Relationship\b([^>]*)\/?>/g, function (_, attrs) {
-            var id = /Id="([^"]+)"/.exec(attrs);
-            var tgt = /Target="([^"]+)"/.exec(attrs);
-            if (id && tgt) brid[id[1]] = tgt[1];
-            return '';
-          });
-          var first = /<sheet\b([^>]*)\/?>/.exec(bwb);
-          if (first) {
-            var ridM = /r:id="([^"]+)"/.exec(first[1]);
-            var sp = normalizeSheetPath(brid[ridM[1]]);
-            var sxml = await bzip.file(sp).async('string');
-            // merge bespoke styles into ours would be ideal; for now append sheet as-is
-            // with style remap from its own styles if present
-            var bstyles = bzip.file('xl/styles.xml');
-            if (bstyles) {
-              var bx = await bstyles.async('string');
-              var mg = mergeStylesXml(stylesXml, bx);
-              stylesXml = mg.xml;
-              sxml = remapSheetStyles(sxml, mg.offsetB.xfs);
-            }
-            var idxb = sheetEntries.length + 1;
-            // photos from bespoke
-            var sn = /sheet(\d+)/i.exec(sp);
-            var relsP = sn ? 'xl/worksheets/_rels/sheet' + sn[1] + '.xml.rels' : null;
-            var hasD = false;
-            if (relsP && bzip.file(relsP)) {
-              var rxml = await bzip.file(relsP).async('string');
-              var dt = null;
-              rxml.replace(/<Relationship\b([^>]*)\/?>/g, function (_, a) {
-                var typ = /Type="([^"]+)"/.exec(a);
-                var tgt = /Target="([^"]+)"/.exec(a);
-                if (tgt && (/drawing/i.test((typ && typ[1]) || '') || /drawings\//i.test(tgt[1]))) {
-                  dt = 'xl/drawings/' + basename(tgt[1]);
-                }
-                return '';
-              });
-              if (dt && bzip.file(dt)) {
-                drawingCount++;
-                var dName = 'drawing' + drawingCount + '.xml';
-                var dXml = await bzip.file(dt).async('string');
-                var drelsp = 'xl/drawings/_rels/' + basename(dt) + '.rels';
-                var newRels = [];
-                if (bzip.file(drelsp)) {
-                  var drels = await bzip.file(drelsp).async('string');
-                  var embeds = [];
-                  drels.replace(/<Relationship\b([^>]*)\/?>/g, function (_, a) {
-                    var tgt = /Target="([^"]+)"/.exec(a);
-                    var rid = /Id="([^"]+)"/.exec(a);
-                    if (tgt) embeds.push({ rid: rid[1], target: tgt[1] });
-                    return '';
-                  });
-                  for (var ej = 0; ej < embeds.length; ej++) {
-                    var mp = 'xl/media/' + basename(embeds[ej].target);
-                    if (!bzip.file(mp)) continue;
-                    mediaCount++;
-                    var ext = basename(mp).split('.').pop();
-                    var mediaName = 'image' + mediaCount + '.' + ext;
-                    out.file('xl/media/' + mediaName, await bzip.file(mp).async('uint8array'));
-                    newRels.push(
-                      '<Relationship Id="rId' +
-                        (ej + 1) +
-                        '" Type="' +
-                        NS_OD +
-                        '/image" Target="../media/' +
-                        mediaName +
-                        '"/>'
-                    );
-                  }
-                }
-                out.file('xl/drawings/' + dName, dXml);
-                out.file(
-                  'xl/drawings/_rels/' + dName + '.rels',
-                  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="' +
-                    NS_REL +
-                    '">' +
-                    newRels.join('') +
-                    '</Relationships>'
-                );
-                out.file(
-                  'xl/worksheets/_rels/sheet' + idxb + '.xml.rels',
-                  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="' +
-                    NS_REL +
-                    '"><Relationship Id="rId1" Type="' +
-                    NS_OD +
-                    '/drawing" Target="../drawings/' +
-                    dName +
-                    '"/></Relationships>'
-                );
-                if (!/<drawing\b/.test(sxml)) sxml = sxml.replace(/<\/worksheet>/, '<drawing r:id="rId1"/></worksheet>');
-                else sxml = sxml.replace(/<drawing\b[^>]*\/>/, '<drawing r:id="rId1"/>');
-                hasD = true;
-                report.photos++;
-              }
-            }
-            out.file('xl/worksheets/sheet' + idxb + '.xml', sxml);
-            sheetEntries.push({ name: btab, path: 'xl/worksheets/sheet' + idxb + '.xml', hasDrawing: hasD, master: '(bespoke)', source: 'bespoke' });
-            report.tabs.push({ tab: btab, master: '(bespoke)', source: 'bespoke', photo: hasD });
-          }
-        } catch (e) {
-          report.errors.push({ tab: btab, error: String(e && e.message || e) });
-        }
-      }
     }
 
     if (!sheetEntries.length) throw new Error('OOXML build produced no sheets');

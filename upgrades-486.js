@@ -311,6 +311,17 @@
   }
 
   function renderCalendarView(rows, deps, helpers) {
+    /* MOVED_TO_ALLOC 4.8.37 — event calendar lives on allocation page */
+    var area = document.getElementById('resultsArea') || document.getElementById('u486Cal');
+    var msg = '<div class="card" style="margin:12px 0;padding:16px">' +
+      '<h3 style="margin:0 0 8px">Calendar grid moved</h3>' +
+      '<p style="margin:0">The Week / Month / Year calendar now lives under ' +
+      '<a href="allocation/"><strong>Work order, allocation &amp; calendar grid</strong></a>. ' +
+      'Upload a Larder, Sauce or Plated work order there — functions fill the calendar automatically. Print A4 or A3 landscape.</p></div>';
+    if (area) { area.innerHTML = msg; return; }
+    return msg;
+  }
+  function renderCalendarView_REMOVED_486(rows, deps, helpers) {
     helpers = helpers || {};
     ensureCss();
     var span = getSpan();

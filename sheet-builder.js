@@ -28,8 +28,12 @@
       '#sbTop button.primary{background:#1C1E1B;color:#F7F4EC;border-color:#1C1E1B}',
       '#sbTop button:disabled{opacity:.5;cursor:wait}',
       '#sbHint{font-size:12px;color:#5C5A52;padding:6px 14px;flex-shrink:0}',
-      '#sbGrid{flex:1;min-height:0;background:#fff;position:relative}',
+      '#sbGrid{flex:1;min-height:0;background:#fff;position:relative;color-scheme:light}',
       '#sbGrid .univer-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#fff;color:#5C5A52;font-size:14px;z-index:2}',
+      /* Force light Univer chrome (grid + surrounding UI), not dark */
+      '#sbPanel,#sbGrid,.univer-app-layout,.univer-sheet-container,#sbGrid [class*="univer"]{background:#fff!important;color:#1C1E1B}',
+      '#sbGrid canvas{background:#fff!important}',
+      '#sbTop{background:#F7F4EC!important}',
       '#sbChoice{position:fixed;inset:0;z-index:9350;background:rgba(28,30,27,.4);display:none;align-items:center;justify-content:center;padding:20px}',
       '#sbChoice.open{display:flex}',
       '#sbChoice .box{background:#F7F4EC;border-radius:14px;padding:20px;max-width:520px;width:100%;border:1px solid #D9D3C4;box-shadow:0 16px 40px rgba(0,0,0,.2)}',
@@ -340,6 +344,32 @@
     });
   }
 
+  function forceLightGrid(ed, workbookData) {
+    try {
+      var sheets = (workbookData && workbookData.sheets) || {};
+      Object.keys(sheets).forEach(function (id) {
+        if (sheets[id] && sheets[id].showGridlines !== 1) sheets[id].showGridlines = 1;
+      });
+    } catch (e0) {}
+    try {
+      var api = ed && ed.univerAPI;
+      var wb = api && api.getActiveWorkbook && api.getActiveWorkbook();
+      var sh = wb && wb.getActiveSheet && wb.getActiveSheet();
+      if (sh) {
+        if (typeof sh.setShowGridlines === 'function') sh.setShowGridlines(true);
+        else if (typeof sh.showGridLines === 'function') sh.showGridLines(true);
+        // White sheet background via facade when available
+        if (typeof sh.setTabColor === 'function') sh.setTabColor('#FFFFFF');
+      }
+    } catch (e1) {}
+    // CSS class on host for light chrome
+    try {
+      var host = document.getElementById('sbGrid');
+      if (host) host.setAttribute('data-theme', 'light');
+      document.documentElement.style.colorScheme = 'light';
+    } catch (e2) {}
+  }
+
   function openWithData(workbookData, opts) {
     ensureDom();
     destroyEditor();
@@ -359,6 +389,7 @@
     return ensureLibs().then(function () {
       host.innerHTML = '';
       editor = root.PreplineUniver.createSheetEditor(host, workbookData || {});
+      try { forceLightGrid(editor, workbookData); } catch (eLg) {}
       setBusy(false, opts.hint || document.getElementById('sbHint').textContent);
       return editor;
     }).catch(function (err) {

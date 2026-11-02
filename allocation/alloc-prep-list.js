@@ -905,10 +905,17 @@
     // Keep match report in memory only — Load a preplist treats EVERY tab as a dish,
     // so do not append an index sheet (it would appear as a fake dish).
 
-    // Optional bespoke / manually-built tabs (from in-app Excel editor)
+    // Optional bespoke / manually-built tabs (from in-app Excel editor).
+    // Collect first, then rebuild workbook in day order so bespoke sits with its day.
+    const bespokeMatched = [];
     for (const extra of opts.extraSheets || []) {
       if (!extra || !extra.ws) continue;
       let name = safeSheetName(extra.tab || extra.name || 'Bespoke', 'Bespoke');
+      // Prefer day-numbered tab from date when editor tab lacked one
+      if (extra.date && (!extra.tab || !/^\d+\s/.test(String(extra.tab)))) {
+        const key = String(extra.dish || 'Dish').replace(/textures of\s+/i, '').split(/\s+/).slice(0, 2).join(' ').slice(0, 14) || 'Bespoke';
+        name = safeSheetName(tabName(extra.date, 'M', key, extra.acronym || 'BESPOKE'), 'Bespoke');
+      }
       let uniq = name;
       let i = 2;
       while (usedNames.has(uniq)) {
@@ -918,8 +925,7 @@
       usedNames.add(uniq);
       const ws = cloneSheet(extra.ws);
       applySamplePrintSetup(ws);
-      X.utils.book_append_sheet(outWb, ws, uniq);
-      matched.push({
+      bespokeMatched.push({
         tab: uniq,
         master: extra.master || '(bespoke)',
         dish: extra.dish || uniq,
@@ -931,13 +937,39 @@
         fromNotes: false,
         acronym: extra.acronym || 'BESPOKE',
         formulaCells: 0,
-        bespoke: true
+        bespoke: true,
+        _ws: ws,
+        xlsxBytes: extra.xlsxBytes || null
       });
     }
 
+    // Interleave bespoke into matched by date (then original order)
+    const mealOrd = { Breakfast: 0, Lunch: 1, Dinner: 2 };
+    const allRows = matched.concat(bespokeMatched);
+    allRows.forEach((row, idx) => { row._ord = idx; });
+    allRows.sort((a, b) => {
+      const da = a.date || '9999-99-99';
+      const db = b.date || '9999-99-99';
+      return da.localeCompare(db) || (mealOrd[a.meal] || 9) - (mealOrd[b.meal] || 9) || a._ord - b._ord;
+    });
+
+    // Rebuild workbook sheet order to match day-sorted tabs
+    const orderedWb = X.utils.book_new();
+    for (const row of allRows) {
+      let ws = row._ws;
+      if (!ws) {
+        // Master-matched sheet already on outWb
+        ws = outWb.Sheets[row.tab];
+      }
+      if (!ws) continue;
+      X.utils.book_append_sheet(orderedWb, cloneSheet(ws), row.tab);
+      delete row._ws;
+      delete row._ord;
+    }
+
     return {
-      workbook: outWb,
-      matched,
+      workbook: orderedWb,
+      matched: allRows,
       unmatched,
       skipped: skipNon,
       formulaErrors,
@@ -1127,9 +1159,11 @@
   function blankPaulaLegendSheet(opts) {
     opts = opts || {};
     const dish = opts.dish || 'Bespoke dish';
-    const eventLabel = opts.eventLabel || '';
+    const eventLabel = opts.eventLabel || 'Event';
     const pax = opts.pax != null ? opts.pax : 100;
-    const rows = opts.rows || []; // [{item, per, unit, cat}] cat: sauce|vege|garnish|starch|protein
+    // Optional rows: [{item, per, unit, cat}] — default EMPTY (type-ready), never ship private master ingredients.
+    const rows = Array.isArray(opts.rows) ? opts.rows : [];
+    const blankRowCount = opts.blankRows != null ? opts.blankRows : 15;
     const CAT = {
       sauce: { rgb: 'FF4A86E8', label: 'Sauce, Puree, Gels' },
       vege: { rgb: 'FF00FF00', label: 'Vege' },
@@ -1138,42 +1172,97 @@
       protein: { rgb: 'FFFF0000', label: 'Protein' }
     };
     const fill = (rgb) => ({ fill: { patternType: 'solid', fgColor: { rgb: rgb } } });
+    const fontTitle = { name: 'Calibri', sz: 33, bold: true };
+    const fontHdr = { name: 'Calibri', sz: 14, bold: true };
+    const fontBody = { name: 'Calibri', sz: 14 };
+    const fontEvent = { name: 'Calibri', sz: 18, bold: true };
+    const fontPax = { name: 'Calibri', sz: 20, bold: true };
+    const thin = { style: 'thin', color: { rgb: 'FF000000' } };
+    const border = { top: thin, bottom: thin, left: thin, right: thin };
+    const alignC = { horizontal: 'center', vertical: 'bottom', wrapText: true };
+    const alignL = { horizontal: 'left', vertical: 'center', wrapText: true };
+    const yellow = Object.assign({ font: fontTitle, alignment: alignC, border }, fill('FFFFFF00'));
+    const commentsHdr = Object.assign({ font: fontHdr, alignment: alignC, border }, fill('FFF6B26B'));
+    const eventSt = { font: fontEvent, alignment: alignL, border };
+    const paxSt = { font: fontPax, alignment: alignC, border };
+    const unitLbl = { font: fontBody, alignment: alignC, border };
+    const hdrSt = { font: fontHdr, alignment: alignC, border };
+    const bodySt = { font: fontBody, alignment: alignL, border };
+    const bodyCtr = { font: fontBody, alignment: alignC, border };
+
     const ws = {};
-    ws['B1'] = { t: 's', v: dish, s: fill('FFFFFF00') };
-    ws['G1'] = { t: 's', v: 'COMMENTS', s: fill('FFF6B26B') };
-    ws['B2'] = { t: 's', v: eventLabel || 'Event' };
-    ws['C2'] = { t: 'n', v: pax };
-    ws['D2'] = { t: 's', v: 'pax' };
-    ws['B3'] = { t: 's', v: 'Item' };
-    ws['C3'] = { t: 's', v: 'per person' };
-    ws['D3'] = { t: 's', v: 'unit' };
-    ws['E3'] = { t: 's', v: 'total' };
+    // Row 1 — yellow merged dish title + COMMENTS
+    ws['B1'] = { t: 's', v: dish, s: yellow };
+    ws['C1'] = { t: 's', v: '', s: yellow };
+    ws['D1'] = { t: 's', v: '', s: yellow };
+    ws['E1'] = { t: 's', v: '', s: yellow };
+    ws['F1'] = { t: 's', v: '', s: yellow };
+    ws['G1'] = { t: 's', v: 'COMMENTS', s: commentsHdr };
+    // Row 2 — day/date/meal/function + pax
+    ws['B2'] = { t: 's', v: eventLabel, s: eventSt };
+    ws['C2'] = { t: 'n', v: Number(pax) || 0, s: paxSt };
+    ws['D2'] = { t: 's', v: 'pax', s: unitLbl };
+    // Row 3 — headers (master order)
+    ws['B3'] = { t: 's', v: 'Item', s: hdrSt };
+    ws['C3'] = { t: 's', v: 'per person', s: hdrSt };
+    ws['D3'] = { t: 's', v: 'unit', s: hdrSt };
+    ws['E3'] = { t: 's', v: 'total', s: hdrSt };
+    ws['F3'] = { t: 's', v: 'total amount prepped', s: hdrSt };
+
     const legendOrder = ['sauce', 'vege', 'garnish', 'starch', 'protein'];
     legendOrder.forEach((k, i) => {
       const r = 4 + i;
-      ws['L' + r] = { t: 's', v: CAT[k].label, s: fill(CAT[k].rgb) };
+      ws['L' + r] = { t: 's', v: CAT[k].label, s: Object.assign({ font: fontHdr }, fill(CAT[k].rgb)) };
     });
-    const defaultRows = rows.length
-      ? rows
-      : [
-          { item: 'Protein element / Prep', per: 1, unit: 'ea', cat: 'protein' },
-          { item: 'Sauce / Puree', per: 20, unit: 'g', cat: 'sauce' },
-          { item: 'Vegetable element', per: 30, unit: 'g', cat: 'vege' },
-          { item: 'Starch element', per: 80, unit: 'g', cat: 'starch' },
-          { item: 'Garnish / herbs', per: 2, unit: 'g', cat: 'garnish' }
-        ];
-    defaultRows.forEach((row, i) => {
+
+    const nData = Math.max(blankRowCount, rows.length || 0, 5);
+    for (let i = 0; i < nData; i++) {
       const r = 4 + i;
-      const cat = CAT[row.cat] || CAT.garnish;
-      ws['A' + r] = { t: 's', v: '', s: fill(cat.rgb) };
-      ws['B' + r] = { t: 's', v: row.item || '' };
-      ws['C' + r] = { t: 'n', v: row.per != null ? row.per : 1 };
-      ws['D' + r] = { t: 's', v: row.unit || 'g' };
-      ws['E' + r] = { t: 'n', f: '=$C$2*C' + r, v: (row.per != null ? row.per : 1) * pax };
-    });
-    const last = 3 + Math.max(defaultRows.length, 5);
+      const row = rows[i] || null;
+      const cat = row && CAT[row.cat] ? CAT[row.cat] : null;
+      ws['A' + r] = { t: 's', v: '', s: cat ? Object.assign({ border }, fill(cat.rgb)) : { border } };
+      ws['B' + r] = { t: 's', v: row && row.item ? row.item : '', s: bodySt };
+      if (row && row.per != null && row.per !== '') {
+        ws['C' + r] = { t: 'n', v: Number(row.per), s: bodyCtr };
+      } else {
+        ws['C' + r] = { t: 's', v: '', s: bodyCtr };
+      }
+      ws['D' + r] = { t: 's', v: row && row.unit ? row.unit : '', s: bodyCtr };
+      // Pre-wired total = per person * pax (same as masters)
+      const perN = row && row.per != null && row.per !== '' ? Number(row.per) : 0;
+      ws['E' + r] = { t: 'n', f: '=$C$2*C' + r, v: perN * (Number(pax) || 0), s: bodyCtr };
+      ws['F' + r] = { t: 's', v: '', s: bodyCtr };
+      ws['G' + r] = { t: 's', v: '', s: bodySt };
+    }
+
+    const last = 3 + nData;
     ws['!ref'] = 'A1:L' + Math.max(last, 8);
-    ws['!cols'] = [{ wch: 3 }, { wch: 55 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 28 }];
+    // Master-ish widths (chars ≈ master col widths)
+    ws['!cols'] = [
+      { wch: 4 },   // A legend marker
+      { wch: 55 },  // B item (master ~206px wide)
+      { wch: 12 },  // C per person
+      { wch: 10 },  // D unit
+      { wch: 12 },  // E total
+      { wch: 18 },  // F total amount prepped
+      { wch: 28 },  // G comments
+      { wch: 8 },
+      { wch: 8 },
+      { wch: 8 },
+      { wch: 8 },
+      { wch: 18 }  // L legend
+    ];
+    ws['!rows'] = [{ hpt: 45 }, { hpt: 28 }, { hpt: 22 }];
+    for (let i = 0; i < nData; i++) ws['!rows'].push({ hpt: 41 });
+    ws['!merges'] = [
+      { s: { r: 0, c: 1 }, e: { r: 0, c: 5 } }, // B1:F1
+      { s: { r: 0, c: 6 }, e: { r: 0, c: 10 } }, // G1:K1
+      { s: { r: 1, c: 6 }, e: { r: 1, c: 10 } },
+      { s: { r: 2, c: 6 }, e: { r: 2, c: 10 } }
+    ];
+    for (let i = 0; i < nData; i++) {
+      ws['!merges'].push({ s: { r: 3 + i, c: 6 }, e: { r: 3 + i, c: 10 } });
+    }
     applySamplePrintSetup(ws);
     return ws;
   }
