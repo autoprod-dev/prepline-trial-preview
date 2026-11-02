@@ -166,7 +166,8 @@ async function onMasterFiles(fileList){
     for(const f of files){
       const buf=await f.arrayBuffer();
       const wb=X.read(buf,{cellStyles:true, cellFormula:true});
-      masterBuffers.push({name:f.name, wb});
+      // Keep raw bytes so dish photos (xl/media + drawings) can be injected on prep download
+      masterBuffers.push({name:f.name, wb, buf:new Uint8Array(buf)});
     }
     if($('masterStatus'))$('masterStatus').textContent=masterBuffers.length+' master file(s) loaded ('+masterBuffers.reduce((n,m)=>n+m.wb.SheetNames.length,0)+' sheets).';
     updPrepFlow();
@@ -180,18 +181,57 @@ function renderBespoke(){
   if(!bespokeSheets.length){el.textContent='No bespoke sheets yet.';return;}
   el.innerHTML=bespokeSheets.map((b,i)=>'<div class="row" style="gap:8px;align-items:center"><code>'+esc(b.tab||b.dish)+'</code> · '+esc(b.acronym||'')+' · pax '+(b.pax!=null?b.pax:'?')+' <button type="button" data-bespoke-del="'+i+'">Remove</button></div>').join('');
 }
-function onDlPrepList(){
+async function onDlPrepList(){
   if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
   if(!masterBuffers.length){status('Load the Entrees and/or Mains master .xlsx first.',true);return;}
+  const btn=$('dlPrepList');
+  if(btn) btn.disabled=true;
   try{
+    status('Building prep list (colours + dish photos)…');
     const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X, extraSheets:bespokeSheets, ...prepDateOpts()});
-    const buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
+    let buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
+    let photoMsg='';
+    if(window.AllocPrepPhotos && AllocPrepPhotos.injectPrepPhotos){
+      // Enrich matched with alias photo fallbacks (e.g. Cod Main → Cod entree photo)
+      const aliasBySheet={};
+      (AllocPrepList.ALIASES||[]).forEach(a=>{
+        const sheets=[a.sheet].concat(a.altSheets||[]).filter(Boolean);
+        sheets.forEach(s=>{ aliasBySheet[s]=sheets; });
+      });
+      const matched=(out.matched||[]).map(m=>{
+        const al=(aliasBySheet[m.master]||[]).filter(s=>s!==m.master);
+        return Object.assign({}, m, {altSheets:al, photoFallbacks:al});
+      });
+      // Merge bespoke xlsxBytes / photoBytes onto matching tabs
+      const byTab={};
+      (bespokeSheets||[]).forEach(b=>{ if(b&&b.tab) byTab[b.tab]=b; });
+      matched.forEach(m=>{
+        const b=byTab[m.tab];
+        if(!b) return;
+        if(b.xlsxBytes && !m.xlsxBytes) m.xlsxBytes=b.xlsxBytes;
+        if(b.photoBytes && !m.photoBytes){ m.photoBytes=b.photoBytes; m.photoExt=b.photoExt; }
+      });
+      const inj=await AllocPrepPhotos.injectPrepPhotos(buf, {
+        masters: masterBuffers,
+        matched: matched,
+        bespoke: bespokeSheets
+      });
+      buf=inj.buffer;
+      out.photoReport=inj.report;
+      photoMsg=' Photos: '+(inj.report.photos||0)+'/'+(inj.report.tabs||[]).length+' tabs.';
+      if((inj.report.missingPhoto||[]).length){
+        photoMsg+=' Missing: '+inj.report.missingPhoto.map(x=>x.tab).join(', ')+'.';
+      }
+    } else {
+      photoMsg=' (photo injector unavailable)';
+    }
     downloadBlob(out.fileName, buf);
     lastPrepResult = out;
-    const msg='Prep list: '+out.matched.length+' matched (incl. '+(bespokeSheets.length)+' bespoke), '+out.unmatched.length+' unmatched'+(out.formulaErrors.length?', '+out.formulaErrors.length+' formula notes':'')+'. Colours/legend preserved.';
+    const msg='Prep list: '+out.matched.length+' matched (incl. '+(bespokeSheets.length)+' bespoke), '+out.unmatched.length+' unmatched'+(out.formulaErrors.length?', '+out.formulaErrors.length+' formula notes':'')+'. Colours/legend preserved.'+photoMsg;
     if($('prepMatchStatus'))$('prepMatchStatus').textContent=msg;
     status('Downloaded '+out.fileName+' — '+msg);
   }catch(e){console.error(e);status('Prep list failed: '+e.message,true);}
+  finally{ updPrepFlow(); }
 }
 let lastPrepResult=null;
 function onAddBespoke(){
