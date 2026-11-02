@@ -5,12 +5,12 @@
 <title>Prepline · Work orders + allocation</title>
 <link rel="stylesheet" href="alloc.css">
 </head><body>
-<header class="noprint"><a href="../" class="back">← Prepline</a><h1>Work orders + allocation</h1><span class="ver">Section 1 · 4.7.0</span></header>
+<header class="noprint"><a href="../" class="back">← Prepline</a><h1>Work orders + allocation</h1><span class="ver">Section 1 · 4.8.28</span></header>
 <main class="noprint">
  <section class="card">
   <h2>1 · Upload work order</h2>
   <div id="drop" class="drop" tabindex="0" role="button" aria-label="Upload work order">
-   <strong>Drop the colour-coded work order (.xlsx) here</strong><br>or click to choose a file
+   <strong>Drop a Larder or Plated work order (.xlsx) here</strong><br>or click to choose a file — section is detected automatically
    <input type="file" id="woFile" accept=".xlsx,.xlsm,.xls" hidden>
   </div>
   <p id="woStatus" class="status"></p>
@@ -26,8 +26,23 @@
    <button id="applySettings">Apply settings</button> <button id="resetSettings">Reset to defaults</button>
   </details></div>
  </section>
+ <section class="card" id="prepFlowCard" hidden>
+  <h2>2 · Day-by-day summary + prep list (Plated)</h2>
+  <p class="hint">After a Plated work order loads, download the day-by-day function summary, then load the Entrees/Mains master copies and download the sorter spreadsheet (tabs like <code>1 Monday - Pea - CommBank</code>). That file loads via Prepline’s “Load a preplist”.</p>
+  <div class="row">
+   <button id="dlDaySummary" class="primary" disabled>Download day summary</button>
+   <span id="daySummaryName" class="hint"></span>
+  </div>
+  <p style="margin-top:12px"><label>Master recipe copies (.xlsx) <input type="file" id="masterFiles" accept=".xlsx,.xlsm,.xls" multiple></label>
+   <span id="masterStatus" class="status"></span></p>
+  <div class="row">
+   <button id="dlPrepList" class="primary" disabled>Download prep list (sorter)</button>
+   <span id="prepListName" class="hint"></span>
+  </div>
+  <p id="prepMatchStatus" class="status"></p>
+ </section>
  <section class="card" id="allocCard" hidden>
-  <h2>2 · Allocation <small id="saveState"></small></h2>
+  <h2>3 · Allocation <small id="saveState"></small></h2>
   <p class="hint">Tap any dish, pax, date, staff or notes cell to change it. Edits save on this device and go into print and the download.</p>
   <div class="row"><button id="dlXlsx" class="primary">Download <span id="fname"></span></button>
    <button id="printDay">Print this day</button><button id="printWeek">Print all 7 days</button><button id="printStations">Print station sheets (A4)</button>
@@ -51,6 +66,9 @@
 <script src="alloc-raw.js"></script>
 <script src="alloc-rules-v2.js"></script>
 <script src="alloc-engine.js"></script>
+<script src="alloc-plated.js"></script>
+<script src="alloc-formula.js"></script>
+<script src="alloc-prep-list.js"></script>
 <script src="../upgrades-47.js"></script>
 <script src="alloc-ui.js"></script>
 <script src="../brand.js"></script>

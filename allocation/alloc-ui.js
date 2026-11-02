@@ -14,21 +14,34 @@ function save(now){clearTimeout(saveTimer);const go=()=>{if(!state)return;state.
 /* ---------- work order reading ---------- */
 const COLS='ABCDEFGHIJKLMNOPQ'.split('');let rawRows=null,rawMeta=null;
 function fillOf(c){const f=c&&c.s&&(c.s.fgColor||c.s.fill&&c.s.fill.fgColor);if(!f||!f.rgb)return null;const p=c.s.patternType||(c.s.fill&&c.s.fill.patternType);if(p&&p!=='solid')return null;return f.rgb;}
+function legendNamesFromWb(wb){const names=[];
+ for(const sn of wb.SheetNames||[]){if(!/colour\s*codes|color\s*codes|^legend$/i.test(sn))continue;
+  const ws=wb.Sheets[sn];if(!ws||!ws['!ref'])continue;const aoa=X.utils.sheet_to_json(ws,{header:1,defval:''});
+  for(const row of aoa)for(const v of row){const s=String(v||'').trim();if(s&&s.length<40)names.push(s);}
+ }
+ return names;}
 function readWO(buf){const wb=X.read(buf,{cellStyles:true,cellDates:false});
  const name=wb.SheetNames.find(n=>/work\s*order/i.test(n))||wb.SheetNames[0];const ws=wb.Sheets[name];const rg=X.utils.decode_range(ws['!ref']);const rows=[];
  for(let r=rg.s.r;r<=rg.e.r;r++){const o={r:r+1};let any=false;COLS.forEach((C,i)=>{const c=ws[C+(r+1)];if(c&&c.v!=null&&c.v!==''){o[C]=c.t==='n'&&C==='A'&&c.w?c.w:c.v;any=true;}});
   if(!any)continue;o.fill=fillOf(ws['H'+(r+1)])||fillOf(ws['F'+(r+1)]);o.fillA=fillOf(ws['A'+(r+1)]);rows.push(o);}
- return rows;}
+ const legend=legendNamesFromWb(wb);
+ const kitchenSection=(E.detectSection?E.detectSection(legend.map(n=>({name:n})),wb.SheetNames):'Larder');
+ return {rows, sheetNames:wb.SheetNames, legend, kitchenSection};}
 
+let lastWo=null, masterBuffers=[];
 function generate(rows,meta){const wo=E.parseWorkOrder(rows);if(!wo.days.length)throw new Error('No day headings (e.g. "Monday, 26 October, 2026") found in column A.');
- const res=E.buildAllocation(wo,settings);if(window.AllocRaw)AllocRaw.applyStaff(res);
- state={v:1,woName:meta.name,woSig:meta.sig,woRows:rows,createdAt:new Date().toISOString(),day:0,res:{week:res.week,fileDate:res.fileDate,lastWO:res.lastWO,sheets:res.sheets,skipped:res.skipped,placed:res.trace.length}};
- save(true);render();}
+ if(meta.kitchenSection)wo.kitchenSection=meta.kitchenSection;
+ const S=Object.assign({},settings,{kitchenSection:meta.kitchenSection||settings.kitchenSection||wo.kitchenSection||'Larder'});
+ const res=E.buildAllocation(wo,S);if(window.AllocRaw)AllocRaw.applyStaff(res);
+ lastWo=wo;
+ state={v:1,woName:meta.name,woSig:meta.sig,woRows:rows,kitchenSection:S.kitchenSection,createdAt:new Date().toISOString(),day:0,res:{week:res.week,fileDate:res.fileDate,lastWO:res.lastWO,sheets:res.sheets,skipped:res.skipped,placed:res.trace.length,kitchenSection:res.kitchenSection}};
+ save(true);render();updPrepFlow();}
 
 async function onFile(f){if(!f)return;if(!/\.xls[xm]?$/i.test(f.name)){status('That is not an Excel file. Please choose the work order .xlsx.',true);return;}
  if(state&&state.edited&&!confirm('Loading a new work order replaces the current allocation and clears your edits. Continue?'))return;
- status('Reading '+f.name+' …');try{const rows=readWO(await f.arrayBuffer());localStorage.removeItem(KEY);const meta={name:f.name,sig:f.name+'|'+f.size+'|'+f.lastModified};rawRows=null;
-  if(window.AllocRaw&&AllocRaw.isRaw(rows)){rawRows=rows;rawMeta=meta;useRawWeek(null);}else{$('weekRow').hidden=true;generate(rows,meta);}}catch(e){console.error(e);status('Could not read this work order: '+e.message,true);}}
+ status('Reading '+f.name+' …');try{const pack=readWO(await f.arrayBuffer());const rows=pack.rows;localStorage.removeItem(KEY);const meta={name:f.name,sig:f.name+'|'+f.size+'|'+f.lastModified,kitchenSection:pack.kitchenSection,sheetNames:pack.sheetNames};
+  rawRows=null;
+  if(window.AllocRaw&&AllocRaw.isRaw(rows)&&pack.kitchenSection!=='Plated'){rawRows=rows;rawMeta=meta;useRawWeek(null);}else{$('weekRow').hidden=true;generate(rows,meta);status('Loaded '+f.name+' as '+pack.kitchenSection+(pack.kitchenSection==='Plated'?' — day summary + prep list ready below.':'.'));}}catch(e){console.error(e);status('Could not read this work order: '+e.message,true);}}
 function useRawWeek(ws){const n=AllocRaw.normalise(rawRows,ws);const all=AllocRaw.mondays(rawRows);const sel=$('weekSel');
  sel.innerHTML=all.map(m=>`<option value="${m}"${m===n.weekStart?' selected':''}>Week of ${new Date(m+"T00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}</option>`).join('');if(!all.includes(n.weekStart))sel.insertAdjacentHTML('afterbegin',`<option value="${n.weekStart}" selected>Week of ${fmtDate(n.weekStart)}</option>`);$('weekRow').hidden=false;
  generate(n.rows,{...rawMeta,raw:true,weekStart:n.weekStart});state.rawNote=`Raw work order export: kept ${n.stats.kept} Larder / combo rows for this week and coloured ${n.stats.coloured} by best guess (${n.stats.dropped} pastry, sauce and other rows left out).`;save(true);render();}
@@ -113,6 +126,59 @@ function applySettings(reset){let s;try{s=reset?Object.assign({},E.DEFAULT_ALLOC
  if(state&&state.edited&&!confirm('Rebuilding with new settings clears your edits. Continue?'))return;
  settings=s;localStorage.setItem(SKEY,JSON.stringify(s));fillSettings();if(state&&state.woRows){const day=state.day;generate(state.woRows,{name:state.woName,sig:state.woSig});state.day=day;save(true);render();}}
 
+
+/* ---------- Plated STEP 2 / STEP 3 (day summary + prep-list sorter) ---------- */
+function updPrepFlow(){
+  const card=$('prepFlowCard'); if(!card) return;
+  const plated = !!(state && (state.kitchenSection==='Plated' || (state.res&&state.res.kitchenSection==='Plated')));
+  card.hidden = !plated;
+  const ds=$('dlDaySummary'), pl=$('dlPrepList');
+  if(ds) ds.disabled = !(plated && lastWo && window.AllocPrepList);
+  if(pl) pl.disabled = !(plated && lastWo && window.AllocPrepList && masterBuffers.length);
+  if($('daySummaryName') && lastWo && window.AllocPrepList) $('daySummaryName').textContent = AllocPrepList.summaryFileName ? AllocPrepList.summaryFileName(lastWo) : '';
+  if($('prepListName') && lastWo && window.AllocPrepList) $('prepListName').textContent = AllocPrepList.prepFileName ? AllocPrepList.prepFileName(lastWo) : '';
+}
+function downloadBlob(name, buf){
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();}, 1500);
+}
+function onDlDaySummary(){
+  if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
+  try{
+    const out=AllocPrepList.buildDaySummary({wo:lastWo, XLSX:X});
+    const buf=X.write(out.workbook,{type:'array', bookType:'xlsx'});
+    downloadBlob(out.fileName, buf);
+    status('Downloaded '+out.fileName+' ('+out.rows.length+' functions).');
+  }catch(e){console.error(e);status('Day summary failed: '+e.message,true);}
+}
+async function onMasterFiles(fileList){
+  const files=Array.from(fileList||[]);
+  masterBuffers=[];
+  if(!files.length){if($('masterStatus'))$('masterStatus').textContent='';updPrepFlow();return;}
+  try{
+    for(const f of files){
+      const buf=await f.arrayBuffer();
+      const wb=X.read(buf,{cellStyles:true, cellFormula:true});
+      masterBuffers.push({name:f.name, wb});
+    }
+    if($('masterStatus'))$('masterStatus').textContent=masterBuffers.length+' master file(s) loaded ('+masterBuffers.reduce((n,m)=>n+m.wb.SheetNames.length,0)+' sheets).';
+    updPrepFlow();
+  }catch(e){console.error(e);if($('masterStatus'))$('masterStatus').textContent='Could not read masters: '+e.message; masterBuffers=[]; updPrepFlow();}
+}
+function onDlPrepList(){
+  if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
+  if(!masterBuffers.length){status('Load the Entrees and/or Mains master .xlsx first.',true);return;}
+  try{
+    const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X});
+    const buf=X.write(out.workbook,{type:'array', bookType:'xlsx'});
+    downloadBlob(out.fileName, buf);
+    const msg='Prep list: '+out.matched.length+' matched, '+out.unmatched.length+' unmatched'+(out.formulaErrors.length?', '+out.formulaErrors.length+' formula notes':'')+'.';
+    if($('prepMatchStatus'))$('prepMatchStatus').textContent=msg;
+    status('Downloaded '+out.fileName+' — '+msg);
+  }catch(e){console.error(e);status('Prep list failed: '+e.message,true);}
+}
+
 /* ---------- wiring ---------- */
 const drop=$('drop'),inp=$('woFile');
 drop.addEventListener('click',()=>inp.click());drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();inp.click();}});
@@ -136,7 +202,7 @@ $('clearAlloc').onclick=()=>{if(!confirm('Clear the allocation and all edits fro
 $('applySettings').onclick=()=>applySettings(false);$('resetSettings').onclick=()=>applySettings(true);
 window.addEventListener('beforeprint',()=>{if(state&&!$('printArea').innerHTML)$('printArea').innerHTML=printSheetHTML(state.res.sheets[state.day]);});
 window.addEventListener('afterprint',()=>{$('printArea').innerHTML='';});
-fillSettings();try{state=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){state=null;}if(state&&state.v!==1)state=null;render();if(!state)status('No work order loaded yet.');
+fillSettings();try{state=JSON.parse(localStorage.getItem(KEY)||'null');}catch(e){state=null;}if(state&&state.v!==1)state=null;render();updPrepFlow();if(!state)status('No work order loaded yet.');
 /* ---------- edit mode: drag & drop (pointer events: mouse, touch, pen), undo, reset ---------- */
 let undoStack=[];const UNDO_MAX=50;
 function snap(){if(!state)return;undoStack.push(JSON.stringify(state.res.sheets));if(undoStack.length>UNDO_MAX)undoStack.shift();updUndo();}
@@ -187,5 +253,9 @@ function printStationSheets(){
   document.title=(E.fileName(state.res)||'Prepline').replace(/\.xlsx$/,'')+' · station sheets';
   window.print();
 }
-window.__alloc={get state(){return state;},buildWorkbook,printSheetHTML,printStationSheets};
+
+const _ds=$('dlDaySummary'); if(_ds)_ds.onclick=onDlDaySummary;
+const _pl=$('dlPrepList'); if(_pl)_pl.onclick=onDlPrepList;
+const _mf=$('masterFiles'); if(_mf)_mf.addEventListener('change',()=>{onMasterFiles(_mf.files);});
+window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();}};
 })();
