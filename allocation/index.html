@@ -5,7 +5,7 @@
 <title>Prepline · Work orders + allocation</title>
 <link rel="stylesheet" href="alloc.css">
 </head><body>
-<header class="noprint"><a href="../" class="back">← Prepline</a><h1>Work orders + allocation</h1><span class="ver">Section 1 · 4.8.28</span></header>
+<header class="noprint"><a href="../" class="back">← Prepline</a><h1>Work orders + allocation</h1><span class="ver">Section 1 · 4.8.30</span></header>
 <main class="noprint">
  <section class="card">
   <h2>1 · Upload work order</h2>
@@ -28,7 +28,7 @@
  </section>
  <section class="card" id="prepFlowCard" hidden>
   <h2>2 · Day-by-day summary + prep list (Plated)</h2>
-  <p class="hint">After a Plated work order loads, download the day-by-day function summary, then load the Entrees/Mains master copies and download the sorter spreadsheet (tabs like <code>1 Monday - Pea - CommBank</code>). That file loads via Prepline’s “Load a preplist”.</p>
+  <p class="hint">Upload a Plated WO → download the day summary → load Entrees/Mains masters → download the sorter prep list (colour legend + fills preserved, photos when injected offline, distinct function labels like <code>CBA Christmas</code> vs <code>CBA Excellence</code>). Load the file via Prepline “Load a preplist”. Show/Hide toggles stay; no login required on this trial.</p>
   <div class="row">
    <button id="dlDaySummary" class="primary" disabled>Download day summary</button>
    <span id="daySummaryName" class="hint"></span>
@@ -40,6 +40,18 @@
    <span id="prepListName" class="hint"></span>
   </div>
   <p id="prepMatchStatus" class="status"></p>
+  <hr style="margin:16px 0;border:none;border-top:1px solid #ddd">
+  <h3 style="margin:0 0 8px;font-size:16px">New spreadsheet (bespoke / no master)</h3>
+  <p class="hint">For dishes with no master tab (e.g. Textures of beetroot, Moreton Bay lobster). Creates a sheet with Paula’s colour legend; included when you download the prep list.</p>
+  <div class="row" style="flex-wrap:wrap;gap:8px">
+   <label>Dish <input id="bespokeDish" type="text" placeholder="Textures of beetroot" style="min-width:180px"></label>
+   <label>Date <input id="bespokeDate" type="date"></label>
+   <label>Function / event <input id="bespokeEvent" type="text" placeholder="Client / function name" style="min-width:180px"></label>
+   <label>Meal <select id="bespokeMeal"><option>Dinner</option><option>Lunch</option><option>Breakfast</option></select></label>
+   <label>Pax <input id="bespokePax" type="number" min="1" value="100" style="width:80px"></label>
+   <button type="button" id="bespokeAdd" class="primary">Add sheet with colour legend</button>
+  </div>
+  <div id="bespokeList" class="hint" style="margin-top:8px"></div>
  </section>
  <section class="card" id="allocCard" hidden>
   <h2>3 · Allocation <small id="saveState"></small></h2>

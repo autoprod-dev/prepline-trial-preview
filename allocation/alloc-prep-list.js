@@ -39,8 +39,8 @@
     { re: /cabbage\s*brik|cannonball\s*cabbage/i, sheet: '2026 Cabbage Brik Dietary', key: 'Cabbage', course: 'M' },
     { re: /murray\s*cod|aquna|blue\s*eye\s*cod|roasted\s*blue\s*eye|oven\s*roasted\s*aquna/i, sheet: '2026 Cod Main', key: 'Cod', course: 'M', altSheets: ['2026 Cod'] },
     // Entrees
-    { re: /duck\s*breast|hawkesbury\s*duck|hunter\s*valley\s*duck|smoked.*duck/i, sheet: '2026 Duck Entree', key: 'Duck', course: 'E', altSheets: ['2026 Duck'] },
-    { re: /byron\s*bay.*pork|berkshire\s*pork|roasted.*pork(?!\s*belly)/i, sheet: '2026 Pork Entree', key: 'Pork', course: 'E', altSheets: ['2026 Pork'] },
+    { re: /duck\s*breast|hawkesbury\s*duck|hunter\s*valley\s*duck|smoked.*duck/i, sheet: '2026 Duck', key: 'Duck', course: 'E', altSheets: ['2026 Duck Entree'] },
+    { re: /byron\s*bay.*pork|berkshire\s*pork|roasted.*pork(?!\s*belly)/i, sheet: '2026 Pork', key: 'Pork', course: 'E', altSheets: ['2026 Pork Entree'] },
     { re: /butternut|agnolotti|goat.?s?\s*cheese\s*ravioli|squash.*ravioli/i, sheet: '2026 Agnolotti Entree', key: 'Rav', course: 'E' },
     { re: /\bravioli\b/i, sheet: '2026 Ravioli', key: 'Rav', course: 'E', altSheets: ['2026 Agnolotti Entree', '2026 Ravioli Entree'] },
     { re: /\bburrata\b/i, sheet: '2026 Burrata', key: 'Burrata', course: 'E' },
@@ -62,20 +62,23 @@
 
   function matchMaster(dish, sheetNames) {
     const names = sheetNames || [];
-    const pick = (want, alts) => {
-      if (want && names.includes(want)) return want;
-      for (const a of alts || []) if (names.includes(a)) return a;
-      if (want) {
+    const candidatesFor = (want, alts) => {
+      const out = [];
+      const add = (n) => { if (n && names.includes(n) && !out.includes(n)) out.push(n); };
+      add(want);
+      for (const a of alts || []) add(a);
+      if (want && !out.length) {
         const hit = names.find((n) => lc(n).includes(lc(want).slice(0, 12)));
-        if (hit) return hit;
+        add(hit);
       }
-      return null;
+      return out;
     };
     for (const a of ALIASES) {
       if (!a.re.test(dish)) continue;
-      const matched = pick(a.sheet, a.altSheets);
-      if (matched) return { ...a, matched };
-      return { ...a, matched: null, missing: a.sheet };
+      const candidates = candidatesFor(a.sheet, a.altSheets);
+      const matched = candidates[0] || null;
+      if (matched) return { ...a, matched, candidates };
+      return { ...a, matched: null, missing: a.sheet, candidates: [] };
     }
     // last-resort: BF / Breakfast tab whose title words appear in the dish
     const tokens = lc(dish).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
@@ -103,47 +106,143 @@
     return 'Dinner';
   }
 
-  function eventAcronym(event) {
+  /** Client short codes (compact for Excel 31-char tabs). */
+  const CLIENT_SHORT = [
+    [/\bSAP\b/i, 'SAP'],
+    [/CommBank|Commonwealth\s*Bank|\bCBA\b/i, 'CBA'],
+    [/NAWIC/i, 'NAWIC'],
+    [/\bSDA\b/i, 'SDA'],
+    [/Australian\s*Training\s*Awards|\bATA\b/i, 'ATA'],
+    [/CEO\s*Magazine|\bCEO\b/i, 'CEO'],
+    [/World\s*Business\s*Forum|\bWBF\b/i, 'WBF'],
+    [/SailPoint/i, 'SailPoint'],
+    [/Tourism\s*Awards/i, 'Tourism'],
+    [/\bHIA\b/i, 'HIA'],
+    [/Military\s*Medicine|AMMA/i, 'AMMA'],
+    [/Innovation\s*&\s*Excellence|Excellence\s*Awards/i, 'IEA'],
+    [/\bESA\b|NZSE|SRB/i, 'ESA'],
+    [/Macquarie/i, 'Macq'],
+    [/Lottery|\bWLS\b/i, 'WLS'],
+    [/Kaseya/i, 'Kaseya'],
+    [/Ageing\s*Australia/i, 'Ageing'],
+    [/Stone\s*Awards/i, 'Stone'],
+    [/Charity\s*Appreciation|\bICCS\b/i, 'ICCS'],
+    [/Five\s*V\s*Capital/i, 'FiveV']
+  ];
+
+  function clientBase(event) {
     const e = clean(event);
     if (!e) return 'EVT';
-    // known tokens first
-    const known = [
-      [/\bSAP\b/i, 'SAP'],
-      [/CommBank|Commonwealth\s*Bank|CBA\b/i, 'CommBank'],
-      [/NAWIC/i, 'NAWIC'],
-      [/\bSDA\b/i, 'SDA'],
-      [/Australian\s*Training\s*Awards|\bATA\b/i, 'ATA'],
-      [/CEO\s*Magazine|\bCEO\b/i, 'CEO'],
-      [/World\s*Business\s*Forum|\bWBF\b/i, 'WBF'],
-      [/SailPoint/i, 'SailPoint'],
-      [/Tourism\s*Awards/i, 'Tourism'],
-      [/HIA/i, 'HIA'],
-      [/Military\s*Medicine|AMMA/i, 'AMMA'],
-      [/Innovation\s*&\s*Excellence|Excellence\s*Awards/i, 'IEA'],
-      [/ESA|NZSE|SRB/i, 'ESA'],
-      [/Macquarie/i, 'Macq'],
-      [/Lottery|WLS/i, 'WLS'],
-      [/Kaseya/i, 'Kaseya'],
-      [/Ageing\s*Australia/i, 'Ageing'],
-      [/Stone\s*Awards/i, 'Stone'],
-      [/Charity\s*Appreciation|ICCS/i, 'ICCS'],
-      [/Five\s*V\s*Capital/i, 'FiveV']
-    ];
-    for (const [re, a] of known) if (re.test(e)) return a;
-    // fallback: capitals / first letters of significant words
+    for (const [re, a] of CLIENT_SHORT) if (re.test(e)) return a;
     const words = e
       .replace(/\(.*?\)/g, '')
       .replace(/\b20\d{2}\b/g, '')
-      .split(/[\s|/,\-]+/)
+      .split(/[\s|/,\-–—]+/)
       .filter((w) => w && !/^(the|and|of|for|a|an|at|in|on|nsw|sydney|australia|australian)$/i.test(w));
     if (words.length === 1) return words[0].slice(0, 8);
     const caps = words.map((w) => w[0]).join('').toUpperCase();
     if (caps.length >= 2 && caps.length <= 6) return caps;
-    return words
-      .slice(0, 2)
-      .map((w) => w.slice(0, 4))
-      .join('')
-      .slice(0, 10);
+    return words.slice(0, 2).map((w) => w.slice(0, 4)).join('').slice(0, 10);
+  }
+
+  /** Distinguishing keyword(s) from full event name (Excellence, Christmas, …). */
+  function eventDistinguisher(event, meal) {
+    const e = clean(event);
+    if (!e) return meal || '';
+    // Strip known client phrases so leftover words are the distinguisher
+    let rest = e;
+    for (const [re] of CLIENT_SHORT) rest = rest.replace(re, ' ');
+    rest = rest
+      .replace(/\(.*?\)/g, ' ')
+      .replace(/\b20\d{2}\b/g, ' ')
+      .replace(/[|/,\-–—]+/g, ' ');
+    const stop = /^(the|and|of|for|a|an|at|in|on|nsw|sydney|australia|australian|bank|awards?|function|gala|event|inc|ltd|pty|limited|officers?|retired|christmas|dinner|lunch|breakfast|annual|national|international)$/i;
+    // Preferred distinctive tokens (checked on full event, keep original casing form)
+    const preferred = [
+      [/Excellence/i, 'Excellence'],
+      [/Christmas/i, 'Christmas'],
+      [/Innovation/i, 'Innovation'],
+      [/Charity/i, 'Charity'],
+      [/Appreciation/i, 'Appreciation'],
+      [/Tourism/i, 'Tourism'],
+      [/Military|AMMA/i, 'Military'],
+      [/Stone/i, 'Stone'],
+      [/SailPoint/i, 'SailPoint'],
+      [/Training/i, 'Training'],
+      [/Retired/i, 'Retired'],
+      [/Forum/i, 'Forum']
+    ];
+    for (const [re, lab] of preferred) if (re.test(e)) return lab;
+    const tokens = rest.split(/\s+/).filter((w) => w && w.length > 2 && !stop.test(w));
+    if (tokens.length) return tokens[0].replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+    return meal || '';
+  }
+
+  /**
+   * Short function label used in tabs + summary.
+   * Same client on different nights → distinct labels (CBA Christmas vs CBA Excellence).
+   */
+  function eventAcronym(event, meal) {
+    const base = clientBase(event);
+    const dist = eventDistinguisher(event, meal);
+    if (!dist) return base;
+    // Avoid "CBA CBA" / "ICCS ICCS"
+    if (lc(dist) === lc(base)) return base;
+    return (base + ' ' + dist).trim();
+  }
+
+  /** Ensure labels unique across a job list; append next distinguishing word / meal / date if needed. */
+  function disambiguateAcronyms(items) {
+    const list = items || [];
+    const byLabel = new Map();
+    for (const it of list) {
+      const lab = it.acronym || eventAcronym(it.event, it.meal);
+      it.acronym = lab;
+      if (!byLabel.has(lab)) byLabel.set(lab, []);
+      byLabel.get(lab).push(it);
+    }
+    for (const [, group] of byLabel) {
+      if (group.length <= 1) continue;
+      // Same label on different full events → expand
+      const byEvent = new Map();
+      for (const g of group) {
+        const ek = (g.event || '') + '|' + (g.meal || '');
+        if (!byEvent.has(ek)) byEvent.set(ek, []);
+        byEvent.get(ek).push(g);
+      }
+      if (byEvent.size <= 1) continue;
+      for (const [, evGroup] of byEvent) {
+        const sample = evGroup[0];
+        const base = clientBase(sample.event);
+        let rest = clean(sample.event);
+        for (const [re] of CLIENT_SHORT) rest = rest.replace(re, ' ');
+        rest = rest.replace(/\(.*?\)/g, ' ').replace(/\b20\d{2}\b/g, ' ');
+        const stop = /^(the|and|of|for|a|an|at|in|on|nsw|sydney|australia|australian|bank|awards?|function|gala|event|inc|ltd|pty|limited)$/i;
+        const tokens = rest.split(/[\s|/,\-–—]+/).filter((w) => w && w.length > 2 && !stop.test(w));
+        let label = base;
+        for (const tok of tokens) {
+          const t = tok.replace(/[^A-Za-z0-9]/g, '');
+          if (!t || lc(t) === lc(base)) continue;
+          const cand = (label + ' ' + t).trim();
+          // accept once unique among other event keys
+          const clash = [...byEvent.keys()].some((k) => {
+            if (k === (sample.event || '') + '|' + (sample.meal || '')) return false;
+            const other = byEvent.get(k)[0];
+            return lc(other.acronym) === lc(cand) || lc(eventAcronym(other.event, other.meal)) === lc(cand);
+          });
+          label = cand;
+          if (!clash) break;
+        }
+        if (label === base && sample.meal) label = base + ' ' + sample.meal;
+        if (label === base || label === base + ' ' + (sample.meal || '')) {
+          const dd = (sample.date || '').slice(8, 10);
+          const mm = (sample.date || '').slice(5, 7);
+          if (dd) label = (base + ' ' + dd + '/' + mm).trim();
+        }
+        for (const g of evGroup) g.acronym = label;
+      }
+    }
+    return list;
   }
 
   function dayNum(iso) {
@@ -160,26 +259,90 @@
     return `${day} ${dd}/${mm} ${meal} (${acronym})`;
   }
 
-  /** Gerard tab form: "1 Monday - Pea - CommBank" (N Day - dish keyword - acronym). Excel max 31. */
+  /** Gerard tab form: "1 Monday - Pea - CBA Christmas" (N Day - dish - distinct function label). Excel max 31 — never drop the distinguishing label. */
   function tabName(iso, courseLetter, dishKey, acronym) {
     const n = dayNum(iso);
     const long = DAYS_LONG[new Date(iso + 'T00:00').getDay()];
     const short = DAYS_SHORT[new Date(iso + 'T00:00').getDay()];
     const key = String(dishKey || 'Dish').trim();
-    const acr = String(acronym || 'EVT').trim();
-    let base = `${n} ${long} - ${key} - ${acr}`.replace(/\s+/g, ' ').trim();
+    let acr = String(acronym || 'EVT').trim();
+    const fit = (dayWord, dish) => (n + ' ' + dayWord + ' - ' + dish + ' - ' + acr).replace(/\s+/g, ' ').trim();
+    let base = fit(long, key);
+    if (base.length > 31) base = fit(short, key);
     if (base.length > 31) {
-      base = `${n} ${short} - ${key} - ${acr}`.replace(/\s+/g, ' ').trim();
+      const room = 31 - (n + ' ' + short + ' -  - ' + acr).length;
+      base = fit(short, key.slice(0, Math.max(2, room)));
     }
     if (base.length > 31) {
-      const room = 31 - (`${n} ${short} -  - ${acr}`.length);
-      const k2 = key.slice(0, Math.max(3, room));
-      base = `${n} ${short} - ${k2} - ${acr}`.replace(/\s+/g, ' ').trim().slice(0, 31);
+      const parts = acr.split(/\s+/);
+      while (base.length > 31 && parts.length > 1) {
+        parts.pop();
+        acr = parts.join(' ');
+        base = fit(short, key.slice(0, 3));
+      }
     }
-    if (base.length > 31) base = base.slice(0, 31).trim();
-    return base;
+    if (base.length > 31) {
+      const suffix = (' - ' + acr).slice(0, 20);
+      const headBudget = 31 - suffix.length;
+      base = (n + ' ' + short + ' - ' + key).slice(0, headBudget).trimEnd() + suffix;
+    }
+    return base.slice(0, 31).trim();
   }
 
+  /** SheetJS read() returns flat fill styles; xlsx-js-style write() needs nested {fill:{...}}. */
+  function styleHasFill(s) {
+    if (!s) return false;
+    if (s.fill && (s.fill.fgColor || s.fill.bgColor || s.fill.patternType)) return true;
+    if (s.patternType || s.fgColor || s.bgColor) return true;
+    return false;
+  }
+  function normalizeStyle(s) {
+    if (!s) return s;
+    const out = {};
+    if (s.font) out.font = s.font;
+    if (s.border) out.border = s.border;
+    if (s.alignment) out.alignment = s.alignment;
+    if (s.numFmt) out.numFmt = s.numFmt;
+    if (s.fill) out.fill = JSON.parse(JSON.stringify(s.fill));
+    else if (s.patternType || s.fgColor || s.bgColor) {
+      out.fill = {
+        patternType: s.patternType || 'solid',
+        fgColor: s.fgColor ? JSON.parse(JSON.stringify(s.fgColor)) : undefined,
+        bgColor: s.bgColor ? JSON.parse(JSON.stringify(s.bgColor)) : undefined
+      };
+    }
+    if (out.fill && out.fill.fgColor && out.fill.fgColor.rgb) {
+      let r = String(out.fill.fgColor.rgb).replace(/^#/, '').toUpperCase();
+      if (r.length === 6) r = 'FF' + r;
+      out.fill.fgColor = { rgb: r };
+    }
+    if (out.fill && out.fill.bgColor && out.fill.bgColor.rgb) {
+      let r = String(out.fill.bgColor.rgb).replace(/^#/, '').toUpperCase();
+      if (r.length === 6) r = 'FF' + r;
+      out.fill.bgColor = { rgb: r };
+    }
+    return out;
+  }
+  /** Score a master sheet for Paula colour-legend usefulness (higher = better). */
+  function legendScore(ws) {
+    if (!ws) return 0;
+    let score = 0;
+    const re = /sauce|puree|gels|vege|garnish|starch|protein/i;
+    for (const addr of Object.keys(ws)) {
+      if (addr[0] === '!') continue;
+      const c = ws[addr];
+      if (!c) continue;
+      const t = c.v != null ? String(c.v) : '';
+      if (t && t.length < 48 && re.test(t) && styleHasFill(c.s)) score += 5;
+      else if (t && t.length < 48 && re.test(t)) score += 1;
+      // coloured marker cells (often empty col A)
+      if (styleHasFill(c.s) && (!t || !String(t).trim())) {
+        const m = /^A\d+$/i.exec(addr);
+        if (m) score += 2;
+      }
+    }
+    return score;
+  }
   function cloneSheet(ws) {
     const out = {};
     for (const k of Object.keys(ws)) {
@@ -191,11 +354,19 @@
         continue;
       }
       const c = ws[k];
-      const n = { t: c.t, v: c.v };
+      const n = {};
+      if (c.t != null) n.t = c.t;
+      if (c.v != null) n.v = c.v;
       if (c.f) n.f = c.f;
       if (c.w != null) n.w = c.w;
       if (c.z) n.z = c.z;
-      if (c.s) n.s = c.s;
+      if (c.s) n.s = normalizeStyle(c.s);
+      // Empty colour-marker / legend swatch cells must keep a value or SheetJS drops the fill on write.
+      if (styleHasFill(c.s) && (n.v == null || n.v === '')) {
+        n.t = 's';
+        n.v = '';
+      }
+      if (n.t == null && n.v != null) n.t = typeof n.v === 'number' ? 'n' : 's';
       out[k] = n;
     }
     return out;
@@ -281,7 +452,7 @@
         byKey.set(k, {
           date: l.date,
           event: l.event,
-          acronym: eventAcronym(l.event),
+          acronym: eventAcronym(l.event, l.meal),
           lines: [],
           yellowRed: 0,
           dishish: 0,
@@ -581,7 +752,7 @@
         paxComputed: g.paxComputed != null ? g.paxComputed : null,
         fromNotes: !!g.fromNotes,
         rooms: [...g.rooms],
-        acronym: eventAcronym(g.event),
+        acronym: eventAcronym(g.event, g.meal),
         woRows: g.rows
       });
     }
@@ -594,6 +765,7 @@
         (mealOrd[a.meal] || 9) - (mealOrd[b.meal] || 9) ||
         courseOrd.indexOf(a.course) - courseOrd.indexOf(b.course)
     );
+    disambiguateAcronyms(jobs);
     return { jobs, skipped };
   }
 
@@ -630,7 +802,7 @@
 
     for (const job of jobs) {
       const hit = matchMaster(job.itemRaw || job.dish, allNames);
-      if (!hit || !hit.matched || !sheetIndex.has(hit.matched)) {
+      if (!hit || (!hit.matched && !(hit.candidates && hit.candidates.length))) {
         unmatched.push({
           dish: job.dish,
           itemRaw: job.itemRaw,
@@ -641,6 +813,27 @@
         });
         continue;
       }
+      // Prefer the candidate master tab with the strongest Paula colour legend.
+      const cands = (hit.candidates && hit.candidates.length
+        ? hit.candidates
+        : [hit.matched]).filter((n) => n && sheetIndex.has(n));
+      if (!cands.length) {
+        unmatched.push({
+          dish: job.dish,
+          itemRaw: job.itemRaw,
+          date: job.date,
+          event: job.event,
+          pax: job.pax,
+          reason: hit && hit.missing ? 'master sheet not in loaded files: ' + hit.missing : 'no master alias for dish'
+        });
+        continue;
+      }
+      let bestName = cands[0], bestScore = -1;
+      for (const n of cands) {
+        const sc = legendScore(sheetIndex.get(n).wb.Sheets[n]);
+        if (sc > bestScore) { bestScore = sc; bestName = n; }
+      }
+      hit.matched = bestName;
       const meta = sheetIndex.get(hit.matched);
       const src = meta.wb.Sheets[hit.matched];
       const ws = cloneSheet(src);
@@ -651,16 +844,18 @@
         unmatched.push({ dish: job.dish, reason: 'master layout: no pax cell', sheet: hit.matched });
         continue;
       }
-      // Set covers
-      ws[lay.paxAddr] = { t: 'n', v: job.pax };
+      // Set covers — keep cell fill/font from the master
+      const prevPax = ws[lay.paxAddr] || {};
+      ws[lay.paxAddr] = { t: 'n', v: job.pax, s: prevPax.s };
       // Event label when that cell is a string slot (standard C2-pax layout with B2 label)
       if (lay.eventAddr && ws[lay.eventAddr] != null) {
         const cur = ws[lay.eventAddr];
         if (cur.t === 's' || typeof cur.v === 'string' || cur.v == null || cur.v === '') {
-          ws[lay.eventAddr] = { t: 's', v: fmtEventLabel(job.date, job.meal, job.acronym) };
+          ws[lay.eventAddr] = { t: 's', v: fmtEventLabel(job.date, job.meal, job.acronym), s: cur.s };
         }
       } else if (lay.paxAddr === 'C2' && (ws['B2'] == null || typeof (ws['B2'] && ws['B2'].v) === 'string')) {
-        ws['B2'] = { t: 's', v: fmtEventLabel(job.date, job.meal, job.acronym) };
+        const curB = ws['B2'] || {};
+        ws['B2'] = { t: 's', v: fmtEventLabel(job.date, job.meal, job.acronym), s: curB.s };
       }
 
       const rec = Formula.recalcSheet(ws);
@@ -697,6 +892,36 @@
     // Index sheet
     // Keep match report in memory only — Load a preplist treats EVERY tab as a dish,
     // so do not append an index sheet (it would appear as a fake dish).
+
+    // Optional bespoke / manually-built tabs (from in-app Excel editor)
+    for (const extra of opts.extraSheets || []) {
+      if (!extra || !extra.ws) continue;
+      let name = String(extra.tab || extra.name || 'Bespoke').replace(/[\\/*?\[\]:]/g, ' ').trim().slice(0, 31) || 'Bespoke';
+      let uniq = name;
+      let i = 2;
+      while (usedNames.has(uniq)) {
+        uniq = (name.slice(0, 28) + ' ' + i).slice(0, 31);
+        i++;
+      }
+      usedNames.add(uniq);
+      const ws = cloneSheet(extra.ws);
+      applySamplePrintSetup(ws);
+      X.utils.book_append_sheet(outWb, ws, uniq);
+      matched.push({
+        tab: uniq,
+        master: extra.master || '(bespoke)',
+        dish: extra.dish || uniq,
+        date: extra.date || '',
+        event: extra.event || '',
+        meal: extra.meal || '',
+        pax: extra.pax != null ? extra.pax : null,
+        dietary: !!extra.dietary,
+        fromNotes: false,
+        acronym: extra.acronym || 'BESPOKE',
+        formulaCells: 0,
+        bespoke: true
+      });
+    }
 
     return {
       workbook: outWb,
@@ -758,7 +983,7 @@
       ['Day-by-day function summary'],
       ['Week Ending', summaryWE(opts.wo, opts)],
       [],
-      ['Day', 'Date', 'Function', 'Meal', 'Breakfast', 'Breakfast pax', 'Entree', 'Entree pax', 'Main', 'Main pax', 'Dietaries', 'Dietary pax'],
+      ['Day', 'Date', 'Function', 'Full event', 'Meal', 'Breakfast', 'Breakfast pax', 'Entree', 'Entree pax', 'Main', 'Main pax', 'Dietaries', 'Dietary pax'],
       ...rows.map((r) => {
         const dt = new Date(r.date + 'T00:00');
         const day = DAYS_LONG[dt.getDay()];
@@ -767,6 +992,7 @@
         return [
           n + ' ' + day,
           d + '/' + m + '/' + y,
+          r.acronym || eventAcronym(r.event, r.meal),
           r.event,
           r.meal,
           fmtDishes(r.breakfasts),
@@ -782,7 +1008,7 @@
     ];
     const ws = X.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [
-      { width: 14 }, { width: 12 }, { width: 42 }, { width: 10 },
+      { width: 14 }, { width: 12 }, { width: 18 }, { width: 42 }, { width: 10 },
       { width: 36 }, { width: 12 }, { width: 36 }, { width: 12 },
       { width: 36 }, { width: 12 }, { width: 36 }, { width: 12 }
     ];
@@ -874,6 +1100,72 @@
     return ws;
   }
 
+
+  /** Write prep workbook with cellStyles so Paula colour fills/legend survive. */
+  function writePrepXlsx(workbook, XLSXlib) {
+    const X = XLSXlib || (typeof XLSX !== 'undefined' ? XLSX : null);
+    if (!X) throw new Error('XLSX required');
+    return X.write(workbook, { type: 'array', bookType: 'xlsx', cellStyles: true });
+  }
+
+  /**
+   * Blank master-shaped sheet with Paula's colour legend (exact RGB used on 2026 masters).
+   * Layout: A = colour marker, B = item, C = per person, D = unit, E = total formula, L = legend.
+   */
+  function blankPaulaLegendSheet(opts) {
+    opts = opts || {};
+    const dish = opts.dish || 'Bespoke dish';
+    const eventLabel = opts.eventLabel || '';
+    const pax = opts.pax != null ? opts.pax : 100;
+    const rows = opts.rows || []; // [{item, per, unit, cat}] cat: sauce|vege|garnish|starch|protein
+    const CAT = {
+      sauce: { rgb: 'FF4A86E8', label: 'Sauce, Puree, Gels' },
+      vege: { rgb: 'FF00FF00', label: 'Vege' },
+      garnish: { rgb: 'FFFF9900', label: 'Garnish' },
+      starch: { rgb: 'FFFFFF00', label: 'Starch' },
+      protein: { rgb: 'FFFF0000', label: 'Protein' }
+    };
+    const fill = (rgb) => ({ fill: { patternType: 'solid', fgColor: { rgb: rgb } } });
+    const ws = {};
+    ws['B1'] = { t: 's', v: dish, s: fill('FFFFFF00') };
+    ws['G1'] = { t: 's', v: 'COMMENTS', s: fill('FFF6B26B') };
+    ws['B2'] = { t: 's', v: eventLabel || 'Event' };
+    ws['C2'] = { t: 'n', v: pax };
+    ws['D2'] = { t: 's', v: 'pax' };
+    ws['B3'] = { t: 's', v: 'Item' };
+    ws['C3'] = { t: 's', v: 'per person' };
+    ws['D3'] = { t: 's', v: 'unit' };
+    ws['E3'] = { t: 's', v: 'total' };
+    const legendOrder = ['sauce', 'vege', 'garnish', 'starch', 'protein'];
+    legendOrder.forEach((k, i) => {
+      const r = 4 + i;
+      ws['L' + r] = { t: 's', v: CAT[k].label, s: fill(CAT[k].rgb) };
+    });
+    const defaultRows = rows.length
+      ? rows
+      : [
+          { item: 'Protein element / Prep', per: 1, unit: 'ea', cat: 'protein' },
+          { item: 'Sauce / Puree', per: 20, unit: 'g', cat: 'sauce' },
+          { item: 'Vegetable element', per: 30, unit: 'g', cat: 'vege' },
+          { item: 'Starch element', per: 80, unit: 'g', cat: 'starch' },
+          { item: 'Garnish / herbs', per: 2, unit: 'g', cat: 'garnish' }
+        ];
+    defaultRows.forEach((row, i) => {
+      const r = 4 + i;
+      const cat = CAT[row.cat] || CAT.garnish;
+      ws['A' + r] = { t: 's', v: '', s: fill(cat.rgb) };
+      ws['B' + r] = { t: 's', v: row.item || '' };
+      ws['C' + r] = { t: 'n', v: row.per != null ? row.per : 1 };
+      ws['D' + r] = { t: 's', v: row.unit || 'g' };
+      ws['E' + r] = { t: 'n', f: '=$C$2*C' + r, v: (row.per != null ? row.per : 1) * pax };
+    });
+    const last = 3 + Math.max(defaultRows.length, 5);
+    ws['!ref'] = 'A1:L' + Math.max(last, 8);
+    ws['!cols'] = [{ wch: 3 }, { wch: 55 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 28 }];
+    applySamplePrintSetup(ws);
+    return ws;
+  }
+
   const API = {
     buildPrepList,
     buildDaySummary,
@@ -885,11 +1177,18 @@
     matchMaster,
     mealFromTime,
     eventAcronym,
+    clientBase,
+    eventDistinguisher,
+    disambiguateAcronyms,
     tabName,
     fmtEventLabel,
     layoutOf,
     cloneSheet,
     applySamplePrintSetup,
+    writePrepXlsx,
+    blankPaulaLegendSheet,
+    legendScore,
+    normalizeStyle,
     summaryFileName,
     prepFileName,
     ALIASES

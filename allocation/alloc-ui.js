@@ -166,18 +166,49 @@ async function onMasterFiles(fileList){
     updPrepFlow();
   }catch(e){console.error(e);if($('masterStatus'))$('masterStatus').textContent='Could not read masters: '+e.message; masterBuffers=[]; updPrepFlow();}
 }
+let bespokeSheets=[]; // {tab, dish, date, event, meal, pax, acronym, ws}
+function loadBespoke(){try{bespokeSheets=JSON.parse(localStorage.getItem('prepline.alloc.bespoke.v1')||'[]');}catch(e){bespokeSheets=[];} renderBespoke();}
+function saveBespoke(){localStorage.setItem('prepline.alloc.bespoke.v1', JSON.stringify(bespokeSheets.map(b=>{const {ws,...rest}=b; return {...rest, wsAoA: b.wsAoA||null}; }))); /* ws kept in memory */ }
+function renderBespoke(){
+  const el=$('bespokeList'); if(!el) return;
+  if(!bespokeSheets.length){el.textContent='No bespoke sheets yet.';return;}
+  el.innerHTML=bespokeSheets.map((b,i)=>'<div class="row" style="gap:8px;align-items:center"><code>'+esc(b.tab||b.dish)+'</code> · '+esc(b.acronym||'')+' · pax '+(b.pax!=null?b.pax:'?')+' <button type="button" data-bespoke-del="'+i+'">Remove</button></div>').join('');
+}
 function onDlPrepList(){
   if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
   if(!masterBuffers.length){status('Load the Entrees and/or Mains master .xlsx first.',true);return;}
   try{
-    const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X});
-    const buf=X.write(out.workbook,{type:'array', bookType:'xlsx'});
+    const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X, extraSheets:bespokeSheets});
+    const buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
     downloadBlob(out.fileName, buf);
-    const msg='Prep list: '+out.matched.length+' matched, '+out.unmatched.length+' unmatched'+(out.formulaErrors.length?', '+out.formulaErrors.length+' formula notes':'')+'.';
+    lastPrepResult = out;
+    const msg='Prep list: '+out.matched.length+' matched (incl. '+(bespokeSheets.length)+' bespoke), '+out.unmatched.length+' unmatched'+(out.formulaErrors.length?', '+out.formulaErrors.length+' formula notes':'')+'. Colours/legend preserved.';
     if($('prepMatchStatus'))$('prepMatchStatus').textContent=msg;
     status('Downloaded '+out.fileName+' — '+msg);
   }catch(e){console.error(e);status('Prep list failed: '+e.message,true);}
 }
+let lastPrepResult=null;
+function onAddBespoke(){
+  if(!window.AllocPrepList||!AllocPrepList.blankPaulaLegendSheet){alert('Prep list module missing blank sheet helper');return;}
+  const dish=($('bespokeDish')&&$('bespokeDish').value||'').trim()||'Bespoke dish';
+  const date=($('bespokeDate')&&$('bespokeDate').value)||'';
+  const event=($('bespokeEvent')&&$('bespokeEvent').value||'').trim()||dish;
+  const meal=($('bespokeMeal')&&$('bespokeMeal').value)||'Dinner';
+  const pax=Math.max(1, +(($('bespokePax')&&$('bespokePax').value)||100));
+  const acronym=AllocPrepList.eventAcronym(event, meal);
+  const eventLabel = date ? AllocPrepList.fmtEventLabel(date, meal, acronym) : (meal+' ('+acronym+')');
+  const ws=AllocPrepList.blankPaulaLegendSheet({dish, eventLabel, pax});
+  let tab = date ? AllocPrepList.tabName(date, 'M', dish.split(/\s+/).slice(0,2).map(w=>w[0].toUpperCase()+w.slice(1)).join(' ').slice(0,12) || 'Bespoke', acronym) : (dish.slice(0,18)+' - '+acronym).slice(0,31);
+  // simpler keyword from dish
+  const key = dish.replace(/textures of\s+/i,'').split(/\s+/).slice(0,2).join(' ').slice(0,14) || 'Bespoke';
+  if(date) tab = AllocPrepList.tabName(date, 'M', key, acronym);
+  else tab = (key+' - '+acronym).slice(0,31);
+  bespokeSheets.push({tab, dish, date, event, meal, pax, acronym, ws, master:'(bespoke)'});
+  renderBespoke();
+  status('Added bespoke sheet "'+tab+'" with Paula colour legend. Download prep list to include it.');
+  if($('bespokeDish'))$('bespokeDish').value='';
+}
+
 
 /* ---------- wiring ---------- */
 const drop=$('drop'),inp=$('woFile');
@@ -257,5 +288,9 @@ function printStationSheets(){
 const _ds=$('dlDaySummary'); if(_ds)_ds.onclick=onDlDaySummary;
 const _pl=$('dlPrepList'); if(_pl)_pl.onclick=onDlPrepList;
 const _mf=$('masterFiles'); if(_mf)_mf.addEventListener('change',()=>{onMasterFiles(_mf.files);});
-window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();}};
+const _ba=$('bespokeAdd'); if(_ba)_ba.onclick=onAddBespoke;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-bespoke-del]'); if(!b)return; bespokeSheets.splice(+b.dataset.bespokeDel,1); renderBespoke(); status('Removed bespoke sheet.');});
+loadBespoke();
+
+window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},get bespoke(){return bespokeSheets;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,onAddBespoke,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();},setBespoke:(arr)=>{bespokeSheets=arr||[];renderBespoke();}};
 })();
