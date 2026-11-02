@@ -143,10 +143,16 @@ function downloadBlob(name, buf){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();}, 1500);
 }
+function prepDateOpts(){
+  const dateFrom=($('prepDateFrom')&&$('prepDateFrom').value)||null;
+  const dateTo=($('prepDateTo')&&$('prepDateTo').value)||null;
+  const weekEnding=($('prepWeekEnding')&&$('prepWeekEnding').value)||null;
+  return {dateFrom, dateTo, weekEnding};
+}
 function onDlDaySummary(){
   if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
   try{
-    const out=AllocPrepList.buildDaySummary({wo:lastWo, XLSX:X});
+    const out=AllocPrepList.buildDaySummary({wo:lastWo, XLSX:X, ...prepDateOpts()});
     const buf=X.write(out.workbook,{type:'array', bookType:'xlsx'});
     downloadBlob(out.fileName, buf);
     status('Downloaded '+out.fileName+' ('+out.rows.length+' functions).');
@@ -178,7 +184,7 @@ function onDlPrepList(){
   if(!lastWo||!window.AllocPrepList){status('Upload a Plated work order first.',true);return;}
   if(!masterBuffers.length){status('Load the Entrees and/or Mains master .xlsx first.',true);return;}
   try{
-    const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X, extraSheets:bespokeSheets});
+    const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X, extraSheets:bespokeSheets, ...prepDateOpts()});
     const buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
     downloadBlob(out.fileName, buf);
     lastPrepResult = out;
@@ -288,9 +294,10 @@ function printStationSheets(){
 const _ds=$('dlDaySummary'); if(_ds)_ds.onclick=onDlDaySummary;
 const _pl=$('dlPrepList'); if(_pl)_pl.onclick=onDlPrepList;
 const _mf=$('masterFiles'); if(_mf)_mf.addEventListener('change',()=>{onMasterFiles(_mf.files);});
-const _ba=$('bespokeAdd'); if(_ba)_ba.onclick=onAddBespoke;
+const _ba=$('bespokeAdd'); /* full editor wired by alloc-sheet-editor.js */
+const _bq=$('bespokeQuickAdd'); if(_bq)_bq.onclick=onAddBespoke;
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bespoke-del]'); if(!b)return; bespokeSheets.splice(+b.dataset.bespokeDel,1); renderBespoke(); status('Removed bespoke sheet.');});
 loadBespoke();
 
-window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},get bespoke(){return bespokeSheets;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,onAddBespoke,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();},setBespoke:(arr)=>{bespokeSheets=arr||[];renderBespoke();}};
+window.__alloc={get state(){return state;},get lastWo(){return lastWo;},get masters(){return masterBuffers;},get bespoke(){return bespokeSheets;},buildWorkbook,printSheetHTML,printStationSheets,onDlDaySummary,onDlPrepList,onMasterFiles,onAddBespoke,updPrepFlow,setMastersFromBuffers:(arr)=>{masterBuffers=arr||[];updPrepFlow();},setBespoke:(arr)=>{bespokeSheets=arr||[];renderBespoke();status((bespokeSheets.length||0)+' bespoke sheet(s) ready for prep download.');}};
 })();

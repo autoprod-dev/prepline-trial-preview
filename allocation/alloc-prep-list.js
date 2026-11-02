@@ -237,7 +237,7 @@
         if (label === base || label === base + ' ' + (sample.meal || '')) {
           const dd = (sample.date || '').slice(8, 10);
           const mm = (sample.date || '').slice(5, 7);
-          if (dd) label = (base + ' ' + dd + '/' + mm).trim();
+          if (dd) label = (base + ' ' + dd + '-' + mm).trim();
         }
         for (const g of evGroup) g.acronym = label;
       }
@@ -260,12 +260,18 @@
   }
 
   /** Gerard tab form: "1 Monday - Pea - CBA Christmas" (N Day - dish - distinct function label). Excel max 31 — never drop the distinguishing label. */
+  function safeSheetName(name, fallback) {
+    let s = String(name == null ? '' : name).replace(/[\\/*?\[\]:]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!s) s = fallback || 'Sheet';
+    return s.slice(0, 31);
+  }
+
   function tabName(iso, courseLetter, dishKey, acronym) {
     const n = dayNum(iso);
     const long = DAYS_LONG[new Date(iso + 'T00:00').getDay()];
     const short = DAYS_SHORT[new Date(iso + 'T00:00').getDay()];
-    const key = String(dishKey || 'Dish').trim();
-    let acr = String(acronym || 'EVT').trim();
+    const key = String(dishKey || 'Dish').replace(/[\\/*?\[\]:]/g, ' ').trim();
+    let acr = String(acronym || 'EVT').replace(/[\\/*?\[\]:]/g, ' ').trim();
     const fit = (dayWord, dish) => (n + ' ' + dayWord + ' - ' + dish + ' - ' + acr).replace(/\s+/g, ' ').trim();
     let base = fit(long, key);
     if (base.length > 31) base = fit(short, key);
@@ -863,11 +869,11 @@
         formulaErrors.push({ sheet: hit.matched, dish: job.dish, errors: rec.errors });
       }
 
-      let name = tabName(job.date, hit.course === 'E' ? 'E' : hit.course === 'BF' ? 'BF' : 'M', hit.key, job.acronym);
+      let name = safeSheetName(tabName(job.date, hit.course === 'E' ? 'E' : hit.course === 'BF' ? 'BF' : 'M', hit.key, job.acronym), 'Dish');
       let uniq = name;
       let i = 2;
       while (usedNames.has(uniq)) {
-        uniq = (name.slice(0, 28) + ' ' + i).slice(0, 31);
+        uniq = safeSheetName(name.slice(0, 28) + ' ' + i, 'Dish');
         i++;
       }
       usedNames.add(uniq);
@@ -896,7 +902,7 @@
     // Optional bespoke / manually-built tabs (from in-app Excel editor)
     for (const extra of opts.extraSheets || []) {
       if (!extra || !extra.ws) continue;
-      let name = String(extra.tab || extra.name || 'Bespoke').replace(/[\\/*?\[\]:]/g, ' ').trim().slice(0, 31) || 'Bespoke';
+      let name = safeSheetName(extra.tab || extra.name || 'Bespoke', 'Bespoke');
       let uniq = name;
       let i = 2;
       while (usedNames.has(uniq)) {
@@ -1181,6 +1187,7 @@
     eventDistinguisher,
     disambiguateAcronyms,
     tabName,
+    safeSheetName,
     fmtEventLabel,
     layoutOf,
     cloneSheet,
