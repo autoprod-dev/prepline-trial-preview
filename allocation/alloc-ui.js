@@ -187,43 +187,65 @@ async function onDlPrepList(){
   const btn=$('dlPrepList');
   if(btn) btn.disabled=true;
   try{
-    status('Building prep list (colours + dish photos)…');
+    status('Building prep list (full master formatting + photos)…');
     const out=AllocPrepList.buildPrepList({wo:lastWo, masters:masterBuffers, XLSX:X, extraSheets:bespokeSheets, ...prepDateOpts()});
-    let buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
+    let buf;
     let photoMsg='';
-    if(window.AllocPrepPhotos && AllocPrepPhotos.injectPrepPhotos){
-      // Enrich matched with alias photo fallbacks (e.g. Cod Main → Cod entree photo)
-      const aliasBySheet={};
-      (AllocPrepList.ALIASES||[]).forEach(a=>{
-        const sheets=[a.sheet].concat(a.altSheets||[]).filter(Boolean);
-        sheets.forEach(s=>{ aliasBySheet[s]=sheets; });
-      });
-      const matched=(out.matched||[]).map(m=>{
-        const al=(aliasBySheet[m.master]||[]).filter(s=>s!==m.master);
-        return Object.assign({}, m, {altSheets:al, photoFallbacks:al});
-      });
-      // Merge bespoke xlsxBytes / photoBytes onto matching tabs
-      const byTab={};
-      (bespokeSheets||[]).forEach(b=>{ if(b&&b.tab) byTab[b.tab]=b; });
-      matched.forEach(m=>{
-        const b=byTab[m.tab];
-        if(!b) return;
-        if(b.xlsxBytes && !m.xlsxBytes) m.xlsxBytes=b.xlsxBytes;
-        if(b.photoBytes && !m.photoBytes){ m.photoBytes=b.photoBytes; m.photoExt=b.photoExt; }
-      });
-      const inj=await AllocPrepPhotos.injectPrepPhotos(buf, {
-        masters: masterBuffers,
-        matched: matched,
-        bespoke: bespokeSheets
-      });
-      buf=inj.buffer;
-      out.photoReport=inj.report;
-      photoMsg=' Photos: '+(inj.report.photos||0)+'/'+(inj.report.tabs||[]).length+' tabs.';
-      if((inj.report.missingPhoto||[]).length){
-        photoMsg+=' Missing: '+inj.report.missingPhoto.map(x=>x.tab).join(', ')+'.';
+    let usedOoxml=false;
+    if(window.AllocPrepOoxml && AllocPrepOoxml.buildFromMatched && masterBuffers.every(m=>m&&m.buf)){
+      try{
+        const oox=await AllocPrepOoxml.buildFromMatched({
+          matched: out.matched,
+          workbook: out.workbook,
+          masters: masterBuffers,
+          bespoke: bespokeSheets
+        });
+        buf=oox.buffer;
+        out.ooxmlReport=oox.report;
+        usedOoxml=true;
+        photoMsg=' OOXML clone · Photos: '+(oox.report.photos||0)+'/'+(oox.report.tabs||[]).length+' tabs.';
+        if((oox.report.errors||[]).length){
+          photoMsg+=' Notes: '+oox.report.errors.map(e=>e.tab+': '+e.error).slice(0,3).join('; ')+'.';
+        }
+      }catch(e){
+        console.warn('OOXML clone failed, falling back to SheetJS+photos', e);
+        usedOoxml=false;
       }
-    } else {
-      photoMsg=' (photo injector unavailable)';
+    }
+    if(!usedOoxml){
+      buf = AllocPrepList.writePrepXlsx ? AllocPrepList.writePrepXlsx(out.workbook, X) : X.write(out.workbook,{type:'array', bookType:'xlsx', cellStyles:true});
+      if(window.AllocPrepPhotos && AllocPrepPhotos.injectPrepPhotos){
+        const aliasBySheet={};
+        (AllocPrepList.ALIASES||[]).forEach(a=>{
+          const sheets=[a.sheet].concat(a.altSheets||[]).filter(Boolean);
+          sheets.forEach(s=>{ aliasBySheet[s]=sheets; });
+        });
+        const matched=(out.matched||[]).map(m=>{
+          const al=(aliasBySheet[m.master]||[]).filter(s=>s!==m.master);
+          return Object.assign({}, m, {altSheets:al, photoFallbacks:al});
+        });
+        const byTab={};
+        (bespokeSheets||[]).forEach(b=>{ if(b&&b.tab) byTab[b.tab]=b; });
+        matched.forEach(m=>{
+          const b=byTab[m.tab];
+          if(!b) return;
+          if(b.xlsxBytes && !m.xlsxBytes) m.xlsxBytes=b.xlsxBytes;
+          if(b.photoBytes && !m.photoBytes){ m.photoBytes=b.photoBytes; m.photoExt=b.photoExt; }
+        });
+        const inj=await AllocPrepPhotos.injectPrepPhotos(buf, {
+          masters: masterBuffers,
+          matched: matched,
+          bespoke: bespokeSheets
+        });
+        buf=inj.buffer;
+        out.photoReport=inj.report;
+        photoMsg=' Photos: '+(inj.report.photos||0)+'/'+(inj.report.tabs||[]).length+' tabs.';
+        if((inj.report.missingPhoto||[]).length){
+          photoMsg+=' Missing: '+inj.report.missingPhoto.map(x=>x.tab).join(', ')+'.';
+        }
+      } else {
+        photoMsg=' (photo injector unavailable)';
+      }
     }
     downloadBlob(out.fileName, buf);
     lastPrepResult = out;

@@ -878,9 +878,11 @@
       }
       usedNames.add(uniq);
       X.utils.book_append_sheet(outWb, ws, uniq);
+      const eventLabel = fmtEventLabel(job.date, job.meal, job.acronym);
       matched.push({
         tab: uniq,
         master: hit.matched,
+        masterSource: meta.source,
         dish: job.dish,
         date: job.date,
         event: job.event,
@@ -891,7 +893,11 @@
         dietary: !!job.dietary,
         fromNotes: !!job.fromNotes,
         acronym: job.acronym,
-        formulaCells: Object.keys(rec.values || {}).length
+        formulaCells: Object.keys(rec.values || {}).length,
+        paxAddr: lay.paxAddr,
+        eventAddr: lay.eventAddr || null,
+        labelAddr: lay.labelAddr || null,
+        eventLabel: eventLabel
       });
     }
 
