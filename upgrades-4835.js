@@ -1,4 +1,4 @@
-/* Prepline 4.8.35 — One-time sort layout + calendar overview (trial + Paula live).
+/* Prepline 4.8.35/4.8.38 — One-time sort layout + calendar overview (trial + Paula live).
  * Layout: unique steps, Show/Hide (default hidden; Step 1 open), File: proof
  *   beside Load only, Ingredients+Prep summary stay put, filters box + yield.
  * UX: hide empty #proPanel spacer under mode tabs; one title + one Show/Hide
@@ -10,7 +10,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '4.8.35';
+  var VERSION = '4.8.38';
   var CSS_ID = 'u4835-css';
   var LS_KEY = 'preplinePref_u4835_open_v1';
   var CAL_LS = 'preplinePref_u4835_cal_v1';
@@ -386,7 +386,7 @@
       ['.u4827-wrap[data-u4827="moreViews"],.u4821-wrap[data-u4821="moreViews"]', 'moreViews', STEP.moreViews, 'More views'],
       ['.u4821-wrap[data-u4821="export"]', 'export', STEP.export, 'Export options'],
       ['.u4821-wrap[data-u4821="print"]', 'print', STEP.print, 'Print options'],
-      ['.u4821-wrap[data-u4821="calendar"]', 'calendar', STEP.calendar, 'Calendar grid'],
+      /* calendar moved off Prepline (4.8.38) */
       ['.u4827-wrap[data-u4827="requisitions"]', 'requisitions', STEP.requisitions, 'Requisitions (purchase orders)'],
       ['.u4827-wrap[data-u4827="foodCost"]', 'foodCost', STEP.foodCost, 'Food cost'],
       ['#u4827HowtoWrap', 'howto', STEP.howto, 'How Prepline sorts & schedules']
@@ -758,6 +758,8 @@
   }
 
   function ensureOverviewCalendar() {
+    /* 4.8.38: calendar moved to Work order, allocation & calendar grid — do not mount on Prepline page */
+    return;
     /* Host: prefer live calendar wrap body; else create under results */
     var calWrap = document.querySelector('.u4821-wrap[data-u4821="calendar"]');
     var hostParent = null;
