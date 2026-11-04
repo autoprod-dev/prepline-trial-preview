@@ -55,21 +55,8 @@
   }
 
   function wireToggle(wrap, key) {
-    if (!wrap || wrap.__u4821Toggle) return;
-    wrap.__u4821Toggle = true;
-    var btn = wrap.querySelector('.u4821-toggle');
-    if (!btn) return;
-    btn.addEventListener('click', function () {
-      var collapsed = wrap.classList.toggle('u480-settings-collapsed');
-      openState[key] = !collapsed;
-      btn.textContent = collapsed ? 'Show' : 'Hide';
-      if (!collapsed && key === 'calendarSlot') {
-        try {
-          if (typeof setView === 'function') setView('week');
-          else if (typeof root.setView === 'function') root.setView('week');
-        } catch (e) {}
-      }
-    });
+    /* 4.8.35-r7: Show/Hide owned by upgrades-4840 (delegated). Do not attach listeners. */
+    return;
   }
 
   function ensureCollapsible(el, key, title, hint, extraClass) {
@@ -77,7 +64,8 @@
     var parent = el.parentNode;
     if (parent.classList && parent.classList.contains('u4821-wrap') &&
         parent.getAttribute('data-u4821') === key) {
-      /* Do NOT re-apply openState — fights Show/Hide after u4822 reclones button. */
+      /* Do NOT re-apply openState — u4822 reclones the button and drops our
+       * toggle listener, so openState goes stale and would slam the section shut. */
       var b = parent.querySelector('.u4821-toggle, .u480-settings-bar button');
       if (b) b.textContent = parent.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
       wireToggle(parent, key);
@@ -101,6 +89,7 @@
     // Already have a wrap for this key next to it?
     var existing = document.querySelector('.u4821-wrap[data-u4821="' + key + '"]');
     if (existing) {
+      /* Keep the user's current open/closed state (see ensureCollapsible note). */
       var b = existing.querySelector('.u4821-toggle, .u480-settings-bar button');
       if (b) b.textContent = existing.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
       wireToggle(existing, key);
@@ -126,25 +115,40 @@
   }
 
   function ensureCalendarSlot() {
-    /* 4.8.37: calendar grid moved to Work order, allocation & calendar grid */
     var groups = document.getElementById('u480Groups');
     if (!groups) return;
     var existing = document.querySelector('.u4821-wrap[data-u4821="calendarSlot"]');
     if (existing) {
-      existing.innerHTML =
-        '<div class="u480-settings-bar"><h2>9 · Calendar grid</h2></div>' +
-        '<div class="u4821-body"><p class="small" style="margin:8px 0;color:var(--ink-soft);">Moved to <a href="allocation/">Work order, allocation &amp; calendar grid</a> — upload a Larder, Sauce or Plated work order there.</p></div>';
-      existing.classList.remove('u480-settings-collapsed');
+      var b = existing.querySelector('.u4821-toggle, .u480-settings-bar button');
+      if (b) b.textContent = existing.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
+      wireToggle(existing, 'calendarSlot');
       return;
     }
     var wrap = document.createElement('div');
     wrap.className = 'u4821-wrap no-print';
     wrap.setAttribute('data-u4821', 'calendarSlot');
-    wrap.innerHTML =
-      '<div class="u480-settings-bar"><h2>9 · Calendar grid</h2>' +
-      '<button type="button" class="ghost u4821-toggle" style="visibility:hidden">Show</button></div>' +
-      '<div class="u4821-body"><p class="small" style="margin:8px 0;color:var(--ink-soft);">Moved to <a href="allocation/">Work order, allocation &amp; calendar grid</a> — upload a Larder, Sauce or Plated work order there. Week / Month / Year + A4/A3 print live on that page.</p></div>';
+    if (!openState.calendarSlot) wrap.classList.add('u480-settings-collapsed');
+    wrap.innerHTML = makeBar('9 · Calendar grid', 'Week / month / year · Print A3', 'calendarSlot');
+    var body = document.createElement('div');
+    body.className = 'u4821-body';
+    body.innerHTML =
+      '<div class="row" style="gap:8px;flex-wrap:wrap;">' +
+      '<button type="button" class="secondary" id="u4821OpenCalBtn">Open week calendar</button>' +
+      '<span class="small" style="color:var(--ink-soft);font-size:12px;">Opens the calendar grid view (same as Week under More views).</span>' +
+      '</div>';
+    wrap.appendChild(body);
     groups.appendChild(wrap);
+    wireToggle(wrap, 'calendarSlot');
+    var btn = body.querySelector('#u4821OpenCalBtn');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        openState.calendarSlot = true;
+        try {
+          if (typeof setView === 'function') setView('week');
+          else if (typeof root.setView === 'function') root.setView('week');
+        } catch (e) {}
+      });
+    }
   }
 
   function removeProgressUi() {
@@ -169,6 +173,7 @@
       var btn = wrap.querySelector('.u480-settings-bar button');
       if (!btn || btn.__u4821Toggle) return;
       btn.__u4821Toggle = true;
+      return; /* 4.8.35-r7: no per-button listener — 4840 owns toggles */
       var fresh = btn.cloneNode(true);
       fresh.classList.add('u4821-toggle');
       btn.parentNode.replaceChild(fresh, btn);
