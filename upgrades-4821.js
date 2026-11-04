@@ -77,9 +77,9 @@
     var parent = el.parentNode;
     if (parent.classList && parent.classList.contains('u4821-wrap') &&
         parent.getAttribute('data-u4821') === key) {
-      parent.classList.toggle('u480-settings-collapsed', !openState[key]);
-      var b = parent.querySelector('.u4821-toggle');
-      if (b) b.textContent = openState[key] ? 'Hide' : 'Show';
+      /* Do NOT re-apply openState — fights Show/Hide after u4822 reclones button. */
+      var b = parent.querySelector('.u4821-toggle, .u480-settings-bar button');
+      if (b) b.textContent = parent.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
       wireToggle(parent, key);
       return parent;
     }
@@ -101,9 +101,8 @@
     // Already have a wrap for this key next to it?
     var existing = document.querySelector('.u4821-wrap[data-u4821="' + key + '"]');
     if (existing) {
-      existing.classList.toggle('u480-settings-collapsed', !openState[key]);
-      var b = existing.querySelector('.u4821-toggle');
-      if (b) b.textContent = openState[key] ? 'Hide' : 'Show';
+      var b = existing.querySelector('.u4821-toggle, .u480-settings-bar button');
+      if (b) b.textContent = existing.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
       wireToggle(existing, key);
       d.classList.add('u4821-converted');
       return existing;

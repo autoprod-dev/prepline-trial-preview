@@ -2,10 +2,11 @@
  * - Calendar grid removed from Preplist page (lives under Work order, allocation & calendar grid).
  * - Step numbers unique; Load a preplist = Step 1; Show/Hide default hidden.
  * - Empty #proPanel spacer stays hidden; single title + single toggle per step.
+ * 4.8.39: Show/Hide sticks — stop re-forcing collapsed from stale openState.
  */
 (function (root) {
   'use strict';
-  var VERSION = '4.8.38';
+  var VERSION = '4.8.39';
   var CSS_ID = 'u4838-css';
 
   /* Renumber without calendar on Prepline page */
