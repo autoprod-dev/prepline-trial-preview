@@ -6,7 +6,7 @@
  */
 (function (root) {
   'use strict';
-  var VERSION = '4.8.39';
+  var VERSION = '4.8.40';
   var CSS_ID = 'u4838-css';
 
   /* Renumber without calendar on Prepline page */
