@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.42-trial">
+<meta name="prepline-version" content="4.8.43-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -950,7 +950,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.42</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.43</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     Two ways to use this: <b>One-time sort</b> works exactly like a normal upload-and-go tool — nothing is
     saved anywhere, close the tab and it's gone (print or export first). <b>Recipe database</b> instead saves
@@ -8319,9 +8319,9 @@ function pwaShowUpdate(reg){
     if (w) w.postMessage({type: 'SKIP_WAITING'}); else location.reload();
   };
 }
-// 4.8.42: one-shot self-heal (mirror Main 4.8.35-r4) for returning SW clients.
-const PREPLINE_SW_EXPECT = '4.8.42';
-const PREPLINE_SW_HEAL_KEY = 'prepline.swHeal.4.8.42';
+// 4.8.43: one-shot self-heal (mirror Main 4.8.35-r4) for returning SW clients.
+const PREPLINE_SW_EXPECT = '4.8.43';
+const PREPLINE_SW_HEAL_KEY = 'prepline.swHeal.4.8.43';
 function preplineSwHealOnce(reason){
   try {
     if (sessionStorage.getItem(PREPLINE_SW_HEAL_KEY)) return;
@@ -8358,7 +8358,7 @@ function pwaInit(){
   let reloading = false;
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    // 4.8.42: returning visitors auto-reload once when a new SW claims this tab.
+    // 4.8.43: returning visitors auto-reload once when a new SW claims this tab.
     if (!hadController || reloading) return;
     reloading = true;
     try { sessionStorage.setItem(PREPLINE_SW_HEAL_KEY + ':claimed', '1'); } catch (e) {}
