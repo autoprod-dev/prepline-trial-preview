@@ -6,13 +6,13 @@
  * 4.8.35-r2: MutationObserver must NOT re-enter (mobile freeze).
  * 4.8.35-r5: Show/Hide flicker fix (4828 stop re-forcing openState) + SW heal
  * from stale openState after u4822 reclones the toggle button.
- * 4.8.42: single Show/Hide+step owner (4840); looser Ref # keyword match
+ * 4.8.35-r7: single Show/Hide+step owner (4840); looser Ref # keyword match
  * 4.8.35-r6: Ref # autofill — 3 or 4 days before BAT (prefer 3); microherbs/fish 0–4;
  * tap water/ice/SUB blank; strong name match only.
  */
 (function (root) {
   'use strict';
-  var VERSION = '4.8.42';
+  var VERSION = '4.8.35-r7';
   var CSS_ID = 'u4838-css';
 
   /* Renumber without calendar on Prepline page */
@@ -74,12 +74,14 @@
   }
 
   function renumberSteps() {
-    /* 4.8.42: sequential numbering owned by upgrades-4840. */
+    /* 4.8.35-r7: sequential numbering owned by upgrades-4840. */
     return;
   }
 
   function stampVersion() {
     try {
+      /* 4.8.35-r9: upgrades-4840 owns the live version badge; do not downgrade. */
+      if (root.__preplineStepOwnerActive || (root.PreplineStepOwner && root.PreplineStepOwner.VERSION)) return;
       var meta = document.querySelector('meta[name="prepline-version"]');
       if (meta && meta.getAttribute('content') !== VERSION) meta.setAttribute('content', VERSION);
       var badge = document.getElementById('appVersion');

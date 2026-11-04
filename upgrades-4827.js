@@ -82,7 +82,7 @@
     var parent = el.parentNode;
     if (parent.classList && parent.classList.contains('u4827-wrap') &&
         parent.getAttribute('data-u4827') === key) {
-      /* Do NOT re-apply openState — fights Show/Hide after u4822 reclones button. */
+      /* Do NOT re-apply openState every pass — fights live Show/Hide. */
       var b = parent.querySelector('.u4827-toggle, .u480-settings-bar button');
       if (b) b.textContent = parent.classList.contains('u480-settings-collapsed') ? 'Show' : 'Hide';
       wireToggle(parent, key);
@@ -427,6 +427,8 @@
 
   function syncVersion() {
     try {
+      /* 4.8.35-r9: upgrades-4840 owns the live version badge; do not downgrade. */
+      if (root.__preplineStepOwnerActive || (root.PreplineStepOwner && root.PreplineStepOwner.VERSION)) return;
       if (root.Prepline477) root.Prepline477.VERSION = VERSION;
       if (root.Prepline4821) root.Prepline4821.VERSION = VERSION;
       if (root.Prepline4826) root.Prepline4826.VERSION = VERSION;
