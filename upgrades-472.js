@@ -190,6 +190,7 @@
       if (!byDay[d]) byDay[d] = [];
       byDay[d].push(f);
     });
+    return ''; /* Exec Chef check removed 4.8.35-r11 */
     var html = '<div class="panel u47-exec no-print" id="u47ExecChef"><h3 style="margin:0 0 6px;">Exec Chef check</h3>';
     html += '<div class="meta">Rule-based attention list for the 3-day window before each event (does not change prep days). ' +
       flags.length + ' flag' + (flags.length === 1 ? '' : 's') + '.</div>';
@@ -238,7 +239,7 @@
     html += '<div class="u47-dashcard"><div class="n">' + due.length + '</div><div class="lbl">Dishes due today</div></div>';
     html += '<div class="u47-dashcard"><div class="n">' + staffAlloc + '/' + staffNeeded + '</div><div class="lbl">Staff allocated</div></div>';
     html += '<div class="u47-dashcard' + (overdue.length ? ' warn' : '') + '"><div class="n">' + overdue.length + '</div><div class="lbl">Overdue / unticked</div></div>';
-    html += '<div class="u47-dashcard' + (execN ? ' warn' : '') + '"><div class="n">' + execN + '</div><div class="lbl">Exec Chef flags</div></div>';
+    /* Exec Chef flags card removed 4.8.35-r11 */;
     html += '</div></div>';
     return html;
   }
@@ -386,12 +387,8 @@
     var css = 'body{font:12px/1.35 Arial,sans-serif;color:#111;margin:16px} h1{font-size:18px;margin:0 0 8px} ' +
       'table{border-collapse:collapse;width:100%} th{background:#ffff00;font-weight:700;text-align:left;padding:6px;border:1px solid #ccc} ' +
       'td{padding:6px;border:1px solid #ddd;vertical-align:top} @page{size:A4 landscape;margin:10mm}';
-    var durNote = (U.PREP_DURATION_ASSUMPTION_NOTE) || (root.Prepline477 && root.Prepline477.PREP_DURATION_ASSUMPTION_NOTE) ||
-      'Duration results are assessed assuming bulk preps are already made 1 week prior and are just to be collected or trayed up for the event';
     var body = '<h1>Prepline organised list</h1><div style="margin-bottom:8px;color:#555">' + data.length +
-      ' rows · yellow headers · section colours</div>' +
-      '<p style="color:#c00;font-weight:700;margin:0 0 10px;max-width:52rem;line-height:1.35">' + esc(durNote) + '</p>' +
-      '<table><thead><tr>' +
+      ' rows · yellow headers · section colours</div><table><thead><tr>' +
       headers.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>';
     data.forEach(function (r) {
       var bg = (r.sectionFill && r.sectionFill.css) || '#fff';
@@ -543,7 +540,7 @@
     var html = '';
     html += todayDashboardHtml(all, helpers);
     html += sharedMiseHtml(rows, helpers.escapeHtml || esc);
-    html += execChefHtml(execChefFlags(all, helpers), helpers.escapeHtml || esc);
+    /* Exec Chef check removed 4.8.35-r11 */;
     if (conflictN) {
       html += '<div class="panel no-print" id="u47Conflicts"><b>Staffing conflicts</b> — ' + conflictN +
         ' staff name(s) on more than one function the same day.</div>';
