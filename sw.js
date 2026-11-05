@@ -38,7 +38,7 @@ const CDN_LIBS = [
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', event => {
-  // 4.8.46: skip waiting (mirror Main 4.8.35-r12) + wipe old caches; activate navigates open clients so returning tabs drop stale HTML/JS. + wipe old caches; activate navigates open clients so returning tabs drop stale HTML/JS.
+  // 4.8.46: skip waiting (mirror Main 4.8.35-r12) + wipe old caches; activate navigates open clients so returning tabs drop stale HTML/JS.
   self.skipWaiting();
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
