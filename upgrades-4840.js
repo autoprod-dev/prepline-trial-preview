@@ -1,4 +1,4 @@
-/* Prepline 4.8.48 (mirror Main 4.8.35-r14) — SINGLE owner of step numbers + Show/Hide.
+/* Prepline 4.8.49 (mirror Main 4.8.35-r15) — SINGLE owner of step numbers + Show/Hide.
  * r13 also drops the More views step (feature removed; renumber 1..N).
  * r14: numbers follow on-screen (document) order so they always read 1..N top to
  * bottom (Requisitions used to show as 10 between 5 and 6). Recipe database removed.
@@ -20,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  var VERSION = '4.8.48';
+  var VERSION = '4.8.49';
   var CSS_ID = 'u4840-css';
   var ATTR = 'data-u4840-id';
   var openState = Object.create(null);

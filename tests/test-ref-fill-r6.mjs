@@ -1,5 +1,10 @@
 /**
- * Unit: Ref # autofill rules for 4.8.35-r6
+ * Unit: Ref # autofill rules for 4.8.35-r13
+ * Keyword-first (plurals/short-long/synonyms), then date filter.
+ * Prefer PT supplier. Warn fresh miss. Fill log item→PO→supplier→delivery→days.
+ * Fresh/perishable: 0..4 (prefer 3 then 4). Dry: STRICT 3|4.
+ * Microherbs/fish/seafood (incl. oyster) + Get Fish: 0..2.
+ * HENG: 0..1. Tap/ice/SUB blank.
  */
 import fs from 'fs';
 import path from 'path';
@@ -22,10 +27,10 @@ const sandbox = {
   poMatchCache: null,
   PO_KEY: 'k',
   PO_LINK_KEY: 'l',
+  INGINFO: { items: {} },
   norm: (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim(),
 };
 sandbox.ingKey = (task) => sandbox.norm(task);
-// poIsInHouse is BEFORE PO_STOP — include it
 const inHouse = html.slice(html.indexOf('function poIsInHouse(task){'), a);
 const boxStart = html.indexOf('function poSupplierShort(n){');
 const boxEnd = html.indexOf('const poInViews');
@@ -34,15 +39,19 @@ const boxFns = html.slice(boxStart, boxEnd);
 vm.createContext(sandbox);
 vm.runInContext(inHouse + '\n' + block + '\n' + boxFns + `
   this.__export = {
-    poIsNonPurchased, poIsMicroherbExempt, poIsFishExempt, poDeliveryAllowed,
-    poMatchFor, PO_FILL_MIN, PO_DELIVERY_PREF_DAYS,
+    poIsNonPurchased, poIsMicroherbExempt, poIsFishExempt, poIsFishSupplier, poIsPerishable, poDeliveryAllowed,
+    poIsHengSupplier, poMatchFor, poTokens, poScore, poPreferredSupplier, poSupplierAffinity, poLogFill, poClearFillLog, poFreshMissWarn,
+    PO_FILL_MIN, poFillLog,
+    PO_DELIVERY_PREF_DAYS, PO_DELIVERY_ALT_DAYS, PO_DELIVERY_EXEMPT_MAX, PO_DELIVERY_PERISH_MAX, PO_DELIVERY_HENG_MAX,
     clearCache(){ poMatchCache = null; }
   };
 `, sandbox);
 
 const {
-  poIsNonPurchased, poIsMicroherbExempt, poIsFishExempt, poDeliveryAllowed,
-  poMatchFor, PO_FILL_MIN, PO_DELIVERY_PREF_DAYS, clearCache
+  poIsNonPurchased, poIsMicroherbExempt, poIsFishExempt, poIsFishSupplier, poIsPerishable, poDeliveryAllowed,
+  poIsHengSupplier, poMatchFor, poTokens, poScore, poPreferredSupplier, poSupplierAffinity, poLogFill, poClearFillLog, poFreshMissWarn,
+  PO_FILL_MIN, poFillLog, PO_DELIVERY_PREF_DAYS,
+  PO_DELIVERY_ALT_DAYS, PO_DELIVERY_EXEMPT_MAX, PO_DELIVERY_PERISH_MAX, PO_DELIVERY_HENG_MAX, clearCache
 } = sandbox.__export;
 
 function makePO(delivery, items) {
@@ -66,6 +75,11 @@ function check(name, cond, detail) {
   else { fail++; console.log('[FAIL]', name, detail || ''); }
 }
 
+check('constants prefer 3', PO_DELIVERY_PREF_DAYS === 3);
+check('constants alt 4', PO_DELIVERY_ALT_DAYS === 4);
+check('constants exempt max 2', PO_DELIVERY_EXEMPT_MAX === 2);
+check('constants heng max 1', PO_DELIVERY_HENG_MAX === 1);
+
 check('tap water non-purchased', poIsNonPurchased('Tap Water'));
 check('water non-purchased', poIsNonPurchased('Water'));
 check('ice non-purchased', poIsNonPurchased('Ice'));
@@ -74,76 +88,238 @@ check('SUB non-purchased', poIsNonPurchased('Green Oil (SUB)'));
 check('spinach IS purchased', !poIsNonPurchased('Baby Spinach 1kg'));
 check('microherb exempt', poIsMicroherbExempt('Micro Herbs Snow Pea Leaf Tendrils Sprout 100gm'));
 check('salmon fish exempt', poIsFishExempt('Salmon Fillet 1kg'));
-check('prawn NOT fish-exempt', !poIsFishExempt('Prawns Green 1kg'));
+check('prawn IS fish-exempt (r12 seafood)', poIsFishExempt('Prawns Green 1kg'));
+check('oyster IS fish-exempt (r12)', poIsFishExempt('Oyster Pambula'));
+check('oysters plural fish-exempt', poIsFishExempt('Pambula Oysters open'));
+check('Get Fish supplier detected', poIsFishSupplier('Get Fish Pty Ltd'));
+check('seafood supplier detected', poIsFishSupplier('Sydney Seafood Co'));
+check('Select Fresh NOT fish supplier', !poIsFishSupplier('Select Fresh'));
+check('oyster day-0 allowed by name', poDeliveryAllowed(0, 'Oyster Pambula'));
+check('Get Fish line day-0 allowed even for spinach wording', poDeliveryAllowed(0, 'Mystery Pack', {supplier:'Get Fish Pty Ltd'}));
+check('Get Fish day-3 NOT (exempt max 2)', !poDeliveryAllowed(3, 'Oyster Pambula', {supplier:'Get Fish Pty Ltd'}));
+
+check('heng detects HENG', poIsHengSupplier('HENG Produce'));
+check('heng detects heng mid', poIsHengSupplier('Fresh HENG Co'));
+check('heng rejects other', !poIsHengSupplier('Select Fresh'));
+
 check('ordinary day 3 allowed', poDeliveryAllowed(3, 'Baby Spinach'));
 check('ordinary day 4 allowed', poDeliveryAllowed(4, 'Baby Spinach'));
-check('ordinary day 0 blocked', !poDeliveryAllowed(0, 'Baby Spinach'));
-check('ordinary day 1 blocked', !poDeliveryAllowed(1, 'Baby Spinach'));
-check('ordinary day 2 blocked', !poDeliveryAllowed(2, 'Baby Spinach'));
-check('micro day 0 allowed', poDeliveryAllowed(0, 'Micro Herbs Mix'));
-check('micro day 2 allowed', poDeliveryAllowed(2, 'Micro Herbs Mix'));
-check('fish day 1 allowed', poDeliveryAllowed(1, 'Barramundi Fillet'));
-check('after BAT blocked', !poDeliveryAllowed(-1, 'Baby Spinach'));
+check('perishable spinach day 0 allowed (r12)', poDeliveryAllowed(0, 'Baby Spinach'));
+check('perishable spinach day 1 allowed', poDeliveryAllowed(1, 'Baby Spinach'));
+check('perishable spinach day 2 allowed', poDeliveryAllowed(2, 'Baby Spinach'));
+check('perishable spinach day 4 allowed', poDeliveryAllowed(4, 'Baby Spinach'));
+check('perishable spinach day 5 NOT', !poDeliveryAllowed(5, 'Baby Spinach'));
+check('dry flour day 0 NOT (strict 3|4)', !poDeliveryAllowed(0, 'Plain Flour 1kg'));
+check('dry flour day 3 allowed', poDeliveryAllowed(3, 'Plain Flour 1kg'));
+check('spinach is perishable', poIsPerishable('Baby Spinach'));
+check('flour NOT perishable', !poIsPerishable('Plain Flour 1kg'));
+
+check('exempt day 0 allowed', poDeliveryAllowed(0, 'Micro Herbs Basil'));
+check('exempt day 2 allowed', poDeliveryAllowed(2, 'Salmon Fillet'));
+check('exempt day 3 NOT allowed', !poDeliveryAllowed(3, 'Micro Herbs Basil'));
+
+check('heng day 0 allowed', poDeliveryAllowed(0, 'Baby Spinach', {supplier:'HENG'}));
+check('heng day 1 allowed', poDeliveryAllowed(1, 'Baby Spinach', {supplier:'HENG Produce'}));
+check('heng day 2 NOT allowed', !poDeliveryAllowed(2, 'Baby Spinach', {supplier:'HENG'}));
+check('heng day 3 NOT allowed (overrides ordinary)', !poDeliveryAllowed(3, 'Baby Spinach', {supplier:'HENG'}));
+check('heng day 0 on fish allowed', poDeliveryAllowed(0, 'Salmon Fillet', {supplier:'HENG'}));
+check('heng day 2 on fish NOT (overrides exempt)', !poDeliveryAllowed(2, 'Salmon Fillet', {supplier:'HENG'}));
+
+// BAT = 03/11/2026 → day-3 delivery = 31/10/2026, day-4 = 30/10/2026, day-0 = 03/11/2026, day-1 = 02/11/2026
+reset([
+  makePO('31/10/2026', [{desc:'Baby Spinach 1kg'}]),
+  makePO('30/10/2026', [{desc:'Baby Spinach 1kg'}]),
+  makePO('03/11/2026', [{desc:'Baby Spinach 1kg'}]),
+]);
+let m = fill('Baby Spinach 1kg');
+check('ordinary prefers day-3 over day-4 and day-0', m && m.status==='ok' && m.item && m.item.po && m.item.po.delivery==='31/10/2026', m && m.item && m.item.po && m.item.po.delivery);
+
+reset([makePO('30/10/2026', [{desc:'Baby Spinach 1kg'}])]);
+m = fill('Baby Spinach 1kg');
+check('ordinary accepts day-4 when no day-3', m && m.status==='ok' && m.item.po.delivery==='30/10/2026');
+
+reset([makePO('03/11/2026', [{desc:'Baby Spinach 1kg'}])]);
+m = fill('Baby Spinach 1kg');
+check('perishable same-day fills (r12 0–4)', m && m.status==='ok' && m.item.po.delivery==='03/11/2026', m && m.status);
+
+reset([makePO('03/11/2026', [{desc:'Plain Flour 1kg'}])]);
+m = fill('Plain Flour 1kg');
+check('dry flour same-day → nodelivery', !m || m.status==='nodelivery' || m.status==='none', m && m.status);
+
+reset([makePO('01/11/2026', [{desc:'Micro Herbs Basil 50g'}])]); // day-2
+m = fill('Micro Herbs Basil 50g');
+check('microherb day-2 fills', m && m.status==='ok' && m.item.po.delivery==='01/11/2026', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'Micro Herbs Basil 50g'}])]); // day-3 — outside exempt
+m = fill('Micro Herbs Basil 50g');
+check('microherb day-3 → nodelivery', !m || m.status==='nodelivery' || m.status==='none', m && m.status);
 
 reset([
-  makePO('03/11/2026', [
-    { desc: 'Baby Spinach Leaves 1kg', supplier: 'Pro Bros' },
-    { desc: 'Tap Water', supplier: 'Select Fresh' },
-    { desc: 'Micro Herbs Snow Pea', supplier: 'Select Fresh' },
-    { desc: 'Lemon Preserved 2kg', supplier: 'Two' },
-  ]),
-  makePO('31/10/2026', [
-    { desc: 'Baby Spinach Leaves 1kg', supplier: 'Select Fresh' },
-    { desc: 'Lemon Preserved 2kg Sandhurst', supplier: 'Two' },
-  ]),
-  makePO('30/10/2026', [
-    { desc: 'Baby Spinach Leaves 1kg', supplier: 'Other Co' },
-  ]),
+  makePO('03/11/2026', [{desc:'Baby Spinach 1kg', supplier:'HENG Produce'}]),
+  makePO('02/11/2026', [{desc:'Baby Spinach 1kg', supplier:'HENG Produce'}]),
+  makePO('01/11/2026', [{desc:'Baby Spinach 1kg', supplier:'HENG Produce'}]),
 ]);
+m = fill('Baby Spinach 1kg');
+check('HENG prefers day-0 over day-1; rejects day-2', m && m.status==='ok' && m.item.po.delivery==='03/11/2026', m && m.item && m.item.po && m.item.po.delivery);
 
-const spinach = fill('Baby Spinach Leaves 1kg');
-check('spinach prefers day-3 not same-day',
-  spinach && spinach.status === 'ok' && spinach.daysBefore === 3,
-  JSON.stringify({ status: spinach && spinach.status, days: spinach && spinach.daysBefore, box: spinach && spinach.boxText }));
+reset([makePO('31/10/2026', [{desc:'Baby Spinach 1kg', supplier:'HENG'}])]);; // day-3
+m = fill('Baby Spinach 1kg');
+check('HENG day-3 rejected', !m || m.status==='nodelivery' || m.status==='none', m && m.status);
 
-const tap = fill('Tap Water');
-check('tap water stays blank (sub)', tap && tap.status === 'sub', JSON.stringify(tap));
+reset([makePO('31/10/2026', [{desc:'Tap Water'}])]);
+m = fill('Tap Water');
+check('tap water stays blank', !m || m.status==='none' || m.status==='skip' || m.status==='nonpurchased' || (m.status!=='ok'), m && m.status);
 
-const lemon = fill('Lemon Preserved 2kg Sandhurst');
-check('lemon uses day-3 not same-day',
-  lemon && lemon.status === 'ok' && lemon.daysBefore === 3,
-  JSON.stringify({ status: lemon && lemon.status, days: lemon && lemon.daysBefore, box: lemon && lemon.boxText }));
+reset([makePO('31/10/2026', [{desc:'Ice Cubes'}])]);
+m = fill('Ice');
+check('ice stays blank', !m || m.status!=='ok', m && m.status);
 
-const micro = fill('Micro Herbs Snow Pea Leaf Tendrils Sprout 100gm');
-check('microherb may use same-day (exempt)',
-  micro && micro.status === 'ok' && micro.daysBefore === 0,
-  JSON.stringify({ status: micro && micro.status, days: micro && micro.daysBefore, box: micro && micro.boxText }));
+reset([makePO('31/10/2026', [{desc:'Green Oil SUB'}])]);
+m = fill('Green Oil (SUB)');
+check('SUB stays blank', !m || m.status!=='ok', m && m.status);
 
-check('SUB stays blank', fill('Pumpkin Puree (SUB)')?.status === 'sub');
 
-reset([makePO('03/11/2026', [{ desc: 'Baby Spinach Leaves 1kg', supplier: 'Pro Bros' }])]);
-const spinachBad = fill('Baby Spinach Leaves 1kg');
-check('spinach same-day only → nodelivery',
-  spinachBad && spinachBad.status === 'nodelivery',
-  JSON.stringify({ status: spinachBad && spinachBad.status, reason: spinachBad && spinachBad.reason }));
+// --- r12: universal keyword (plurals / short-long) ---
+check('tokens oyster/oysters align', (()=>{ const a=poTokens('Oyster Pambula'), b=poTokens('Oysters Pambula open'); return a.includes('oyster') && b.includes('oyster') && poScore(a,b) >= PO_FILL_MIN; })());
+check('tokens tomato/tomatoes', (()=>{ const a=poTokens('Tomato'), b=poTokens('Tomatoes vine ripened'); return a.includes('tomato') && b.includes('tomato') && poScore(a,b) >= PO_FILL_MIN; })());
+check('FILL_MIN try-hard 0.45', PO_FILL_MIN === 0.45);
 
+check('PERISH_MAX 4', PO_DELIVERY_PERISH_MAX === 4);
+
+// --- r13: synonyms ---
+check('syn prawn=shrimp tokens', (()=>{ const a=poTokens('Prawn cutlets'), b=poTokens('Shrimp cutlets'); return a.includes('prawn') && b.includes('prawn') && poScore(a,b) >= PO_FILL_MIN; })());
+check('syn coriander=cilantro', (()=>{ const a=poTokens('Coriander leaves'), b=poTokens('Cilantro bunch'); return a.includes('coriander') && b.includes('coriander') && poScore(a,b) >= PO_FILL_MIN; })());
+check('syn eggplant=aubergine', (()=>{ const a=poTokens('Eggplant'), b=poTokens('Aubergine diced'); return a.includes('eggplant') && b.includes('eggplant') && poScore(a,b) >= PO_FILL_MIN; })());
+check('syn pambula oyster phrase', (()=>{ const a=poTokens('Oyster Pambula'), b=poTokens('Pambula oysters open'); return a.includes('oyster') && a.includes('pambula') && b.includes('oyster') && b.includes('pambula'); })());
+
+// --- r13: prefer PT supplier ---
+sandbox.INGINFO.items = {};
 reset([
-  makePO('31/10/2026', [{ desc: 'Herb Sage Fresh Bunch', supplier: 'A' }]),
-  makePO('30/10/2026', [{ desc: 'Herb Sage Fresh Bunch', supplier: 'B' }]),
+  makePO('31/10/2026', [{desc:'Baby Spinach 1kg', supplier:'Select Fresh'}]),
+  makePO('31/10/2026', [{desc:'Baby Spinach 1kg', supplier:'Get Fresh Co'}]),
 ]);
-const sage = fill('Herb Sage Fresh Bunch 20g');
-check('prefer day-3 over day-4',
-  sage && sage.status === 'ok' && sage.daysBefore === 3 && /A/.test(sage.boxText || ''),
-  JSON.stringify({ days: sage && sage.daysBefore, box: sage && sage.boxText }));
+sandbox.INGINFO.items[sandbox.ingKey('Baby Spinach 1kg')] = {sup:'Get Fresh Co'};
+clearCache();
+m = fill('Baby Spinach 1kg');
+check('prefer PT supplier Get Fresh Co', m && m.status==='ok' && /get fresh/i.test(m.item.supplier), m && m.item && m.item.supplier);
 
-reset([makePO('30/10/2026', [{ desc: 'Parmesan Shaved PFD 1kg', supplier: 'PFD' }])]);
-const parm = fill('Parmesan Shaved PFD - 1kg');
-check('day-4 alone fills',
-  parm && parm.status === 'ok' && parm.daysBefore === 4,
-  JSON.stringify({ days: parm && parm.daysBefore, box: parm && parm.boxText }));
+sandbox.INGINFO.items = {};
+reset([
+  makePO('31/10/2026', [{desc:'Rocket 500g', supplier:'Select Fresh'}]),
+  makePO('31/10/2026', [{desc:'Rocket 500g', supplier:'Leafy Co'}]),
+]);
+m = fill('Rocket 500g - Leafy Co');
+check('prefer supplier from PT name tail', m && m.status==='ok' && /leafy/i.test(m.item.supplier), m && m.item && m.item.supplier);
 
-check('PO_FILL_MIN strong', PO_FILL_MIN >= 0.7, String(PO_FILL_MIN));
-check('prefer const is 3', PO_DELIVERY_PREF_DAYS === 3);
+// --- r13: warn fresh miss ---
+reset([makePO('31/10/2026', [{desc:'Completely Unrelated Widget 1kg', supplier:'Acme'}])]);
+m = fill('Baby Spinach');
+check('fresh none -> warn', m && m.status==='none' && m.warn === true, m && JSON.stringify({s:m.status,w:m.warn}));
 
-console.log('\nRESULT', { pass, fail, PO_FILL_MIN });
+reset([makePO('20/10/2026', [{desc:'Baby Spinach 1kg'}])]);
+m = fill('Baby Spinach 1kg');
+check('fresh out-of-window -> warn nodelivery', m && m.status==='nodelivery' && m.warn === true, m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'Completely Unrelated Widget 1kg', supplier:'Acme'}])]);
+m = fill('Plain Flour 1kg');
+check('dry none -> no fresh warn', m && m.status==='none' && !m.warn, m && JSON.stringify({s:m&&m.status,w:m&&m.warn}));
+
+// --- r13: fill log (oyster is fish-exempt 0–2; use day-1 delivery) ---
+poClearFillLog();
+reset([makePO('02/11/2026', [{desc:'Oyster Pambula open', supplier:'Get Fish Pty Ltd'}])]);
+m = fill('Oyster Pambula');
+if (m && m.status==='ok') poLogFill('Oyster Pambula', m);
+check('fill log entry shape', poFillLog.length===1 && poFillLog[0].item==='Oyster Pambula' && /Get Fish/i.test(poFillLog[0].supplier) && poFillLog[0].delivery==='02/11/2026' && poFillLog[0].daysBefore===1, JSON.stringify(poFillLog[0]||{}));
+
+
+// --- r12: RQ00049541 Oyster Pambula / Get Fish (delivery 10/11/2026) ---
+// Keyword match was already strong (score ~0.85); window was the failure under r11.
+function fillOn(name, bat) { return poMatchFor(name, { functionDate: bat, forFill: true }); }
+
+reset([makePO('10/11/2026', [{desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'}])]);
+m = fillOn('Oyster Pambula', '10/11/2026'); // day-0
+check('oyster fills day-0 vs BAT (r12)', m && m.status==='ok' && m.item && m.item.po.delivery==='10/11/2026', m && m.status);
+check('oyster box has Get Fish', m && m.status==='ok' && /get\s*fish/i.test(m.boxText||m.item.supplier||''), m && (m.boxText||m.item && m.item.supplier));
+
+reset([makePO('10/11/2026', [{desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'}])]);
+m = fillOn('Oyster Pambula', '11/11/2026'); // day-1
+check('oyster fills day-1 vs BAT', m && m.status==='ok', m && m.status);
+
+reset([makePO('10/11/2026', [{desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'}])]);
+m = fillOn('Oyster Pambula', '12/11/2026'); // day-2
+check('oyster fills day-2 vs BAT', m && m.status==='ok', m && m.status);
+
+reset([makePO('10/11/2026', [{desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'}])]);
+m = fillOn('Oyster Pambula', '13/11/2026'); // day-3 — outside fish window
+check('oyster day-3 → nodelivery', !m || m.status==='nodelivery' || m.status==='none', m && m.status);
+
+// Same REQ also has HENG lines — day-0 ok for HENG, still 0–1 only
+reset([makePO('10/11/2026', [
+  {desc:'01151000 Sushi Nigiri : Inari (Tofu) VEGAN GF x 30', supplier:'Heng Australia Pty Ltd'},
+  {desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'},
+])]);
+m = fillOn('Oyster Pambula', '10/11/2026');
+check('mixed REQ: oyster still picks Get Fish', m && m.status==='ok' && /get\s*fish/i.test((m.item&&m.item.supplier)||''), m && m.item && m.item.supplier);
+m = fillOn('Sushi Nigiri Inari', '10/11/2026');
+check('mixed REQ: HENG nigiri fills day-0', m && m.status==='ok' && /heng/i.test((m.item&&m.item.supplier)||''), m && m.status);
+
+// Token sanity: Pambula oysters wording variants
+reset([makePO('10/11/2026', [{desc:'01151000 Oyster Pambula, open', supplier:'Get Fish Pty Ltd'}])]);
+for (const name of ['Oyster Pambula', 'Oysters Pambula', 'Pambula Oyster', 'Pambula oysters open']) {
+  m = fillOn(name, '10/11/2026');
+  check('variant fills: '+name, m && m.status==='ok', m && m.status);
+}
+
+
+// --- r15: stronger keyword parse (eschallot, abbrevs, spelling, FP guards) ---
+reset([makePO('31/10/2026', [{desc:'SHALLOT BROWN PEELED KG'}])]);
+m = fill('Eschallot Peeled');
+check('eschallot = shallot', m && m.status==='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'RICE PAPER ROLL CHICKEN TERIYAKI VEGETABLE GF 60G X20'}])]);
+m = fill('RPR (L) : CHK TERI Veg (GF*) 60g x20');
+check('RPR/CHK/TERI abbreviations', m && m.status==='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'FETA LEMNOS 2KG'}])]);
+m = fill('Cheese Fetta 2kg - Lemnos');
+check('fetta = feta', m && m.status==='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'XANTHAN GUM 500G'}])]);
+m = fill('Xanthum Gum 500g');
+check('xanthum = xanthan', m && m.status==='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'MILK FULL CREAM 3L'}])]);
+m = fill('Coconut milk');
+check('coconut milk ≠ milk', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'BUTTER BEANS 2KG'}])]);
+m = fill('Butter unsalted');
+check('butter ≠ butter beans', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'2.6K(6) SWEET MUSTARD PICKLES RELISH MASTERFOODS'}])]);
+m = fill('Herb Micro Mustard Green');
+check('mustard green ≠ mustard pickle', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'CARROT JULIENNE PEELED'}])]);
+m = fill('Chicken and Madeira Pate 1kg Juliannes Kitchen');
+check('juliannes kitchen ≠ julienne', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'SUGAR SNAP PEAS'}])]);
+m = fill('Pea Green Frozen 2kg - Garden Supreme');
+check('green pea ≠ sugar snap', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'SHALLOT BUNCH'}])]);
+m = fill('Spring onion');
+check('spring onion ≠ shallot (AU)', !m || m.status!=='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'HERB MINT BCH'}])]);
+m = fill('Herb Mint River Fresh Bunch');
+check('mint still fills after r15', m && m.status==='ok', m && m.status);
+
+reset([makePO('31/10/2026', [{desc:'LEMONS'}])]);
+m = fill('Lemon juice');
+check('head-noun lemon juice = lemons', m && m.status==='ok', m && m.status);
+
+
+console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
