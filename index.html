@@ -1411,35 +1411,45 @@ function poWrapRefLines(c, text, maxW){
   return lines.length ? lines : [''];
 }
 function origRefLayout(c, text, x, y, w, h, S, minY, maxY){
-  // Same size as the PT ingredient names (~8–9pt). Never below 7.5pt, never shrink or condense for width.
-  const REF_FS = 8.5, REF_FLOOR = 7.5;
-  const fs = Math.max(REF_FLOOR, REF_FS);
-  const px = fs * S, maxW = Math.max(4, w - 2), lineH = px * 1.05;
-  c.font = '600 ' + px + 'px Arial, Helvetica, sans-serif';
+  // 8.5pt like the PT ingredient names. If a wrap would overflow this row
+  // (and cover the next Ref #), step the size down — crisp, no squash or
+  // ellipsis — until it fits. Never go below 6pt.
+  const REF_FS = 8.5, REF_FLOOR = 6;
+  const maxW = Math.max(4, w - 2);
   const one = String(text || '').split(/\s*;\s*/)[0].trim();
-  let lines;
-  if (one === SUB_PAGE_REF_STAMP){
-    lines = poWrapRefLines(c, one, maxW);
-  } else if (!/\d{1,2}\/\d{1,2}\/\d{4}/.test(one)){
-    lines = poWrapRefLines(c, one, maxW);
-  } else {
-    const parts = poSplitRefBox(one);
-    const single = [parts.supplier, parts.date].filter(Boolean).join(' ');
-    if (c.measureText(single).width <= maxW) lines = [single];
-    else if (parts.date && c.measureText(parts.supplier).width <= maxW && c.measureText(parts.date).width <= maxW){
-      lines = [parts.supplier, parts.date];
+  const lo = (minY == null || !isFinite(minY)) ? y : minY;
+  const hi = (maxY == null || !isFinite(maxY)) ? (y + Math.max(1, h)) : maxY;
+  const avail = Math.max(1, hi - lo);
+  function wrapAt(fs){
+    const px = fs * S, lineH = px * 1.05;
+    c.font = '600 ' + px + 'px Arial, Helvetica, sans-serif';
+    let lines;
+    if (one === SUB_PAGE_REF_STAMP){
+      lines = poWrapRefLines(c, one, maxW);
+    } else if (!/\d{1,2}\/\d{1,2}\/\d{4}/.test(one)){
+      lines = poWrapRefLines(c, one, maxW);
     } else {
-      lines = poWrapRefLines(c, single, maxW);
+      const parts = poSplitRefBox(one);
+      const single = [parts.supplier, parts.date].filter(Boolean).join(' ');
+      if (c.measureText(single).width <= maxW) lines = [single];
+      else if (parts.date && c.measureText(parts.supplier).width <= maxW && c.measureText(parts.date).width <= maxW){
+        lines = [parts.supplier, parts.date];
+      } else {
+        lines = poWrapRefLines(c, single, maxW);
+      }
     }
+    const totalH = Math.max(lineH, lines.length * lineH);
+    return { lines, lineH, totalH, fs, px };
   }
-  const totalH = Math.max(lineH, lines.length * lineH);
-  let ty = y + (h - totalH) / 2;
-  const lo = (minY == null || !isFinite(minY)) ? -1e9 : minY;
-  const hi = (maxY == null || !isFinite(maxY)) ? 1e9 : maxY;
+  let fs = REF_FS, lay = wrapAt(fs);
+  while (lay.totalH > avail + 0.01 && fs > REF_FLOOR + 0.001){
+    fs = Math.max(REF_FLOOR, Math.round((fs - 0.25) * 100) / 100);
+    lay = wrapAt(fs);
+  }
+  let ty = lo + (avail - lay.totalH) / 2;
   if (ty < lo) ty = lo;
-  if (ty + totalH > hi) ty = hi - totalH;
-  if (ty < lo) ty = lo;
-  return { lines, ty, lineH, totalH, fs, px, x, w, maxW };
+  if (ty + lay.totalH > hi) ty = Math.max(lo, hi - lay.totalH);
+  return { lines: lay.lines, ty, lineH: lay.lineH, totalH: lay.totalH, fs: lay.fs, px: lay.px, x, w, maxW };
 }
 function drawOrigRefText(c, text, x, y, w, h, S, minY, maxY){
   const lay = origRefLayout(c, text, x, y, w, h, S, minY, maxY);
@@ -1484,7 +1494,6 @@ function origComposed(entry, dish){
         const x = bx.x0 * S;
         const right = Math.min((bx.x1 != null ? bx.x1 * S : cv.width - pad), cv.width - pad);
         const w = Math.max(4, right - x);
-        const GAP = 4;
         const allRows = (entry.refRows || []).slice().sort((a,b)=>a.top-b.top);
         function findSectionRule(fromY){
           // First thin horizontal divider below the ingredients (crosses left of
@@ -1529,70 +1538,25 @@ function origComposed(entry, dish){
         const sectionBottom = findSectionRule(lastRow ? lastRow.top * S : 0);
         const topLimit = allRows.length ? Math.max(0, allRows[0].top * S - 2) : 0;
         const bottomLimit = Math.max(topLimit + 8, sectionBottom - 5);
-        const laid = lines.map(({row, text})=>{
-          const y = (row.top + 0.5) * S, h = Math.max(9, row.bot - row.top - 1) * S;
-          const lay = origRefLayout(c, text, x, y, w, h, S, -1e9, 1e9);
-          return { row, text, y, h, lay };
-        });
-        // Keep each fill on its own ingredient row. Only nudge up a little if a
-        // 2-line wrap would cover the next Ref # or the rule under the ingredients.
+        const GAP = 1;
         const rowIndex = (row)=> allRows.findIndex(r => r === row || (r.top === row.top && r.bot === row.bot));
-        laid.forEach((item, i)=>{
-          const idx = rowIndex(item.row);
-          const prev = idx > 0 ? allRows[idx - 1] : null;
+        // Each fill stays inside its own ingredient row. If 8.5pt (wrapped)
+        // would cover the next Ref # or the Method rule, origRefLayout shrinks
+        // the type until it fits — it never shifts into another row.
+        const laid = lines.map(({row, text})=>{
+          const idx = rowIndex(row);
           const next = (idx >= 0 && idx < allRows.length - 1) ? allRows[idx + 1] : null;
-          const minY = prev ? (prev.bot * S + GAP) : topLimit;
-          const maxY = next ? (next.top * S - GAP) : bottomLimit;
-          const boxTop = item.y;
-          const boxBot = Math.min(item.y + item.h, maxY);
-          const totalH = item.lay.totalH;
-          let ty = boxTop + (boxBot - boxTop - totalH) / 2;
-          if (ty + totalH > maxY) ty = maxY - totalH;
-          // Stay on this ingredient's Ref # — never drift up into the row above.
-          const floor = Math.max(minY, item.y - 2);
-          if (ty < floor) ty = floor;
-          if (ty + totalH > maxY) ty = Math.max(next ? floor : minY, maxY - totalH);
-          item.lay.ty = ty;
+          const minY = row.top * S;
+          const rowBot = (row.bot != null ? row.bot * S : minY + 24);
+          const maxY = Math.max(minY + 1, Math.min(rowBot, next ? next.top * S : 1e9, bottomLimit) - GAP);
+          const lay = origRefLayout(c, text, x, minY, w, maxY - minY, S, minY, maxY);
+          return { row, text, y: minY, h: maxY - minY, lay, maxY };
         });
-        // If two fills still collide, push the lower one down only if it stays
-        // above its maxY; otherwise pull the upper one up within its floor.
-        for (let i = 1; i < laid.length; i++){
-          const prev = laid[i - 1], cur = laid[i];
-          const need = prev.lay.ty + prev.lay.totalH + GAP;
-          if (cur.lay.ty >= need) continue;
-          const idx = rowIndex(cur.row);
-          const next = (idx >= 0 && idx < allRows.length - 1) ? allRows[idx + 1] : null;
-          const maxY = next ? (next.top * S - GAP) : bottomLimit;
-          if (need + cur.lay.totalH <= maxY) cur.lay.ty = need;
-          else {
-            const floor = Math.max(topLimit, prev.y - 2);
-            prev.lay.ty = Math.max(floor, maxY - cur.lay.totalH - GAP - prev.lay.totalH);
-            cur.lay.ty = prev.lay.ty + prev.lay.totalH + GAP;
-          }
-        }
-        // If the last fill would cover the ingredients/Method divider, pack the
-        // block backwards from the rule, closing unused gaps in taller rows so
-        // every stamp stays readable and above the line.
-        if (laid.length){
-          const last = laid[laid.length - 1];
-          if (last.lay.ty + last.lay.totalH > bottomLimit){
-            last.lay.ty = bottomLimit - last.lay.totalH;
-            for (let i = laid.length - 1; i > 0; i--){
-              const cur = laid[i], prev = laid[i - 1];
-              const need = cur.lay.ty - GAP - prev.lay.totalH;
-              if (prev.lay.ty <= need) continue;
-              const before = i >= 2 ? laid[i - 2] : null;
-              const floor = before ? (before.lay.ty + before.lay.totalH + GAP) : topLimit;
-              prev.lay.ty = Math.max(floor, need);
-            }
-            if (last.lay.ty + last.lay.totalH > bottomLimit) last.lay.ty = bottomLimit - last.lay.totalH;
-          }
-        }
-        // White-wipe only the text band so a later row cannot cover the Ref #
-        // of the row above, then paint every fill on top.
+        // White-wipe only the text band, clipped so it cannot cover the next
+        // Ref # or the Method divider, then paint every fill on top.
         laid.forEach(item=>{
           const fillY = item.lay.ty - 1;
-          const fillBot = Math.min(item.lay.ty + item.lay.totalH + 1, bottomLimit + 1);
+          const fillBot = Math.min(item.lay.ty + item.lay.totalH + 1, item.maxY, bottomLimit + 1);
           const fillH = Math.max(1, fillBot - fillY);
           c.fillStyle = '#fff';
           c.fillRect(x - 1, fillY, w + 2, fillH);
