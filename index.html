@@ -1484,25 +1484,126 @@ function origComposed(entry, dish){
         const x = bx.x0 * S;
         const right = Math.min((bx.x1 != null ? bx.x1 * S : cv.width - pad), cv.width - pad);
         const w = Math.max(4, right - x);
+        const GAP = 4;
         const allRows = (entry.refRows || []).slice().sort((a,b)=>a.top-b.top);
-        function neighborBand(row){
-          const idx = allRows.findIndex(r => r === row || (r.top === row.top && r.bot === row.bot));
+        function findSectionRule(fromY){
+          // First thin horizontal divider below the ingredients (crosses left of
+          // the Ref # column, a sharp dark spike — not a text row).
+          const pad = 2;
+          const yStart = Math.min(cv.height - 1, Math.max(0, Math.ceil(fromY)));
+          const y0 = Math.max(0, yStart - pad);
+          const y1 = Math.min(cv.height - 1, yStart + Math.round(50 * S));
+          const xa = Math.max(0, Math.floor(Math.min(x - 80, cv.width * 0.5)));
+          const xb = Math.min(cv.width, Math.ceil(Math.max(right + 10, x + 80)));
+          const span = xb - xa;
+          if (span < 20 || y1 <= y0) return Math.min(cv.height, fromY + 24);
+          const data = c.getImageData(xa, y0, span, y1 - y0 + 1).data;
+          const rows = [];
+          for (let y = 0; y <= y1 - y0; y++){
+            let dark = 0, xmin = span, xmax = 0;
+            for (let i = 0; i < span; i++){
+              const o = (y * span + i) * 4;
+              const r = data[o], g = data[o + 1], b = data[o + 2];
+              if (r < 210 && g < 210 && b < 210 && Math.abs(r - g) < 40 && Math.abs(r - b) < 40){
+                dark++;
+                if (i < xmin) xmin = i;
+                if (i > xmax) xmax = i;
+              }
+            }
+            rows.push({ dark, xmin, xmax });
+          }
+          for (let y = yStart - y0; y < rows.length - 1; y++){
+            const cur = rows[y], prev = rows[y - 1] || rows[y], next = rows[y + 1] || rows[y];
+            const wide = cur.dark > span * 0.65 && (cur.xmax - cur.xmin) > 80 && (xa + cur.xmin) <= x - 8;
+            const prev2 = rows[y - 2] || prev;
+            const next2 = rows[y + 2] || next;
+            const next3 = rows[y + 3] || next2;
+            const peak = cur.dark > prev2.dark * 1.5 && cur.dark > next3.dark * 1.5;
+            const thick = (rows[y + 1] && rows[y + 1].dark > cur.dark * 0.8) && (rows[y + 2] && rows[y + 2].dark > cur.dark * 0.8);
+            if (wide && peak && !thick) return y0 + y;
+          }
+          return Math.min(cv.height, fromY + 24);
+        }
+        const lastRow = allRows[allRows.length - 1];
+        // Start at the last ingredient name so a divider on that row's underline is not missed.
+        const sectionBottom = findSectionRule(lastRow ? lastRow.top * S : 0);
+        const topLimit = allRows.length ? Math.max(0, allRows[0].top * S - 2) : 0;
+        const bottomLimit = Math.max(topLimit + 8, sectionBottom - 5);
+        const laid = lines.map(({row, text})=>{
+          const y = (row.top + 0.5) * S, h = Math.max(9, row.bot - row.top - 1) * S;
+          const lay = origRefLayout(c, text, x, y, w, h, S, -1e9, 1e9);
+          return { row, text, y, h, lay };
+        });
+        // Keep each fill on its own ingredient row. Only nudge up a little if a
+        // 2-line wrap would cover the next Ref # or the rule under the ingredients.
+        const rowIndex = (row)=> allRows.findIndex(r => r === row || (r.top === row.top && r.bot === row.bot));
+        laid.forEach((item, i)=>{
+          const idx = rowIndex(item.row);
           const prev = idx > 0 ? allRows[idx - 1] : null;
           const next = (idx >= 0 && idx < allRows.length - 1) ? allRows[idx + 1] : null;
-          const minY = prev ? (prev.bot * S + 2) : 0;
-          const maxY = next ? (next.top * S - 2) : cv.height;
-          return { minY, maxY };
+          const minY = prev ? (prev.bot * S + GAP) : topLimit;
+          const maxY = next ? (next.top * S - GAP) : bottomLimit;
+          const boxTop = item.y;
+          const boxBot = Math.min(item.y + item.h, maxY);
+          const totalH = item.lay.totalH;
+          let ty = boxTop + (boxBot - boxTop - totalH) / 2;
+          if (ty + totalH > maxY) ty = maxY - totalH;
+          // Stay on this ingredient's Ref # — never drift up into the row above.
+          const floor = Math.max(minY, item.y - 2);
+          if (ty < floor) ty = floor;
+          if (ty + totalH > maxY) ty = Math.max(next ? floor : minY, maxY - totalH);
+          item.lay.ty = ty;
+        });
+        // If two fills still collide, push the lower one down only if it stays
+        // above its maxY; otherwise pull the upper one up within its floor.
+        for (let i = 1; i < laid.length; i++){
+          const prev = laid[i - 1], cur = laid[i];
+          const need = prev.lay.ty + prev.lay.totalH + GAP;
+          if (cur.lay.ty >= need) continue;
+          const idx = rowIndex(cur.row);
+          const next = (idx >= 0 && idx < allRows.length - 1) ? allRows[idx + 1] : null;
+          const maxY = next ? (next.top * S - GAP) : bottomLimit;
+          if (need + cur.lay.totalH <= maxY) cur.lay.ty = need;
+          else {
+            const floor = Math.max(topLimit, prev.y - 2);
+            prev.lay.ty = Math.max(floor, maxY - cur.lay.totalH - GAP - prev.lay.totalH);
+            cur.lay.ty = prev.lay.ty + prev.lay.totalH + GAP;
+          }
         }
-        lines.forEach(({row, text})=>{
-          const y = (row.top + 0.5) * S, h = Math.max(9, row.bot - row.top - 1) * S;
-          const { minY, maxY } = neighborBand(row);
-          const lay = origRefLayout(c, text, x, y, w, h, S, minY, maxY);
-          const fillY = Math.min(y, lay.ty) - 1;
-          const fillH = Math.max(y + h, lay.ty + lay.totalH) - fillY + 1;
-          c.fillStyle = '#fff'; c.fillRect(x - 1, fillY, w + 2, fillH);
-          // One short "Supplier dd/mm/yyyy" (or the SUB-page BAT stamp) at the ingredient-text size.
-          // Never condense/squeeze, never ellipsis, never leave the Ref # column.
-          drawOrigRefText(c, text, x, y, w, h, S, minY, maxY);
+        // If the last fill would cover the ingredients/Method divider, pack the
+        // block backwards from the rule, closing unused gaps in taller rows so
+        // every stamp stays readable and above the line.
+        if (laid.length){
+          const last = laid[laid.length - 1];
+          if (last.lay.ty + last.lay.totalH > bottomLimit){
+            last.lay.ty = bottomLimit - last.lay.totalH;
+            for (let i = laid.length - 1; i > 0; i--){
+              const cur = laid[i], prev = laid[i - 1];
+              const need = cur.lay.ty - GAP - prev.lay.totalH;
+              if (prev.lay.ty <= need) continue;
+              const before = i >= 2 ? laid[i - 2] : null;
+              const floor = before ? (before.lay.ty + before.lay.totalH + GAP) : topLimit;
+              prev.lay.ty = Math.max(floor, need);
+            }
+            if (last.lay.ty + last.lay.totalH > bottomLimit) last.lay.ty = bottomLimit - last.lay.totalH;
+          }
+        }
+        // White-wipe only the text band so a later row cannot cover the Ref #
+        // of the row above, then paint every fill on top.
+        laid.forEach(item=>{
+          const fillY = item.lay.ty - 1;
+          const fillBot = Math.min(item.lay.ty + item.lay.totalH + 1, bottomLimit + 1);
+          const fillH = Math.max(1, fillBot - fillY);
+          c.fillStyle = '#fff';
+          c.fillRect(x - 1, fillY, w + 2, fillH);
+        });
+        laid.forEach(item=>{
+          const lay = item.lay;
+          c.font = '600 ' + lay.px + 'px Arial, Helvetica, sans-serif';
+          c.fillStyle = '#0B3D91';
+          c.textBaseline = 'top';
+          let ty = lay.ty;
+          lay.lines.forEach(line=>{ c.fillText(line, x, ty); ty += lay.lineH; });
         });
         const u = cv.toDataURL('image/jpeg', 0.92); origCompCache[key] = u; res(u);
       }catch(e){ rej(e); }
