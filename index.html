@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="prepline-version" content="4.8.52-trial">
+<meta name="prepline-version" content="4.8.53-trial">
 <meta name="theme-color" content="#1C1E1B">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -951,7 +951,7 @@ body.pb-open #surveyToast,body.asis-open #surveyToast,body.pb-open #revertPrevBt
   <div id="resultsArea"></div>
 
   <footer class="no-print">
-    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.52</div>
+    <div id="appVersion" style="font-family:'IBM Plex Mono',monospace; font-size:11px; margin-bottom:6px;">Prepline v4.8.53</div>
     <div class="footer-links"><a href="privacy.html" id="privacyLink" target="_blank" rel="noopener" onclick="return privacyLinkClick(event)">Privacy</a> · <a href="#" id="footerReportLink" onclick="openReport(); return false;">Report a problem</a></div>
     <b>Session only:</b> uploaded preplists, production tools and purchase orders are used for this tab only.
     Nothing from an upload is saved to this browser, so a reload or closing the tab clears them (print or export first).
@@ -8706,8 +8706,8 @@ function pwaShowUpdate(reg){
   };
 }
 // 4.8.35-r13: one-shot self-heal if a broken SW/cache build is still controlling this tab.
-const PREPLINE_SW_EXPECT = '4.8.52';
-const PREPLINE_SW_HEAL_KEY = 'prepline.swHeal.4.8.52';
+const PREPLINE_SW_EXPECT = '4.8.53';
+const PREPLINE_SW_HEAL_KEY = 'prepline.swHeal.4.8.53';
 function preplineSwHealOnce(reason){
   try {
     if (sessionStorage.getItem(PREPLINE_SW_HEAL_KEY)) return;
